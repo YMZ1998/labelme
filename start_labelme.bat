@@ -2,6 +2,7 @@
 setlocal
 set "LABELME_ENV=D:\conda\envs\labelme"
 set "LABELME_PYTHON=%LABELME_ENV%\python.exe"
+set "LABELME_CONFIG_INI=%~dp0config.ini"
 
 if not exist "%LABELME_PYTHON%" (
     echo Python was not found: "%LABELME_PYTHON%"

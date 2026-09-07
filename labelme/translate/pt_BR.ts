@@ -850,6 +850,18 @@ Selecione um modelo diferente ou use o modo AI-Box.</translation>
         <translation>Contour smoothness</translation>
     </message>
     <message>
+        <source>Point spacing</source>
+        <translation>Point spacing</translation>
+    </message>
+    <message>
+        <source> px</source>
+        <translation> px</translation>
+    </message>
+    <message>
+        <source>Larger spacing creates fewer polygon points</source>
+        <translation>Larger spacing creates fewer polygon points</translation>
+    </message>
+    <message>
         <source>Could not identify the imaging circle. Use an image with a visible circular field on a dark background.</source>
         <translation>Could not identify the imaging circle. Use an image with a visible circular field on a dark background.</translation>
     </message>

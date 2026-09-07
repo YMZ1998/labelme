@@ -850,6 +850,18 @@ Please select a different model or use AI-Box mode.</source>
         <translation>轮廓平滑度</translation>
     </message>
     <message>
+        <source>Point spacing</source>
+        <translation>點間隔</translation>
+    </message>
+    <message>
+        <source> px</source>
+        <translation> 像素</translation>
+    </message>
+    <message>
+        <source>Larger spacing creates fewer polygon points</source>
+        <translation>間隔越大，產生的多邊形頂點越少</translation>
+    </message>
+    <message>
         <source>Could not identify the imaging circle. Use an image with a visible circular field on a dark background.</source>
         <translation>未能识别成像外圆，请使用暗背景上具有清晰圆形成像边界的图像。</translation>
     </message>

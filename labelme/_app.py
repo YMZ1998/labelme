@@ -1575,9 +1575,14 @@ class MainWindow(QtWidgets.QMainWindow):
         if self._image.isNull():
             return
         dialog = RingContourDialog(image=self._image, parent=self)
-        if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted or dialog.mask is None:
+        if (
+            dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted
+            or dialog.mask is None
+        ):
             return
-        self._canvas_widgets.canvas.set_ring_mask(dialog.mask)
+        self._canvas_widgets.canvas.set_ring_mask(
+            dialog.mask, point_spacing=dialog.point_spacing
+        )
         self._switch_canvas_mode(edit=False, create_mode="annular_sector")
 
     def _switch_canvas_mode(self, *, edit: bool, create_mode: str | None) -> None:

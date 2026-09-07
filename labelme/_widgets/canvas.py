@@ -190,6 +190,7 @@ class Canvas(QtWidgets.QWidget):
     _ring_error: str | None = None
     _ring_mask: npt.NDArray[np.bool_] | None = None
     _ring_outlines: tuple[Shape, ...] = ()
+    _ring_point_spacing: float = 24.0
 
     _fill_drawing = False
 
@@ -1823,11 +1824,15 @@ class Canvas(QtWidgets.QWidget):
             self._ring_mask,
             [(p.x(), p.y()) for p in points],
             major_arc=self._ring_major_arc,
+            point_spacing=self._ring_point_spacing,
         )
         return tuple(QPointF(float(x), float(y)) for x, y in polygon)
 
-    def set_ring_mask(self, mask: npt.NDArray[np.bool_]) -> None:
+    def set_ring_mask(
+        self, mask: npt.NDArray[np.bool_], *, point_spacing: float = 12.0
+    ) -> None:
         self._ring_mask = mask.copy()
+        self._ring_point_spacing = point_spacing
         self._ring_outlines = tuple(
             Shape(shape_type="polygon", points=contour, closed=True)
             for contour in mask_contours(mask)
