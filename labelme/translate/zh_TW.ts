@@ -105,6 +105,22 @@
         <translation>編輯形狀</translation>
     </message>
     <message>
+        <source>Ring: click the outer start point (1/4)</source>
+        <translation>环形：点击起始边外点（1/4）</translation>
+    </message>
+    <message>
+        <source>Ring: click the inner start point (2/4)</source>
+        <translation>环形：点击起始边内点（2/4）</translation>
+    </message>
+    <message>
+        <source>Ring: click the inner end point (3/4)</source>
+        <translation>环形：点击结束边内点（3/4）</translation>
+    </message>
+    <message>
+        <source>Ring: click the outer end point (4/4); hold Shift for the small arc</source>
+        <translation>环形：点击结束边外点（4/4）；按住 Shift 生成小弧</translation>
+    </message>
+    <message>
         <source>Click start point for line</source>
         <translation>點擊線段起點</translation>
     </message>
@@ -147,6 +163,14 @@
     <message>
         <source>Right-click &amp; drag to copy shape</source>
         <translation>右鍵點擊並拖拽以複製形狀</translation>
+    </message>
+    <message>
+        <source>Cannot form a ring: check point order and avoid parallel radial sides. Undo a point to retry.</source>
+        <translation>无法生成环形：请检查内外点顺序，两条径向边不能平行。可撤销上一点后重试。</translation>
+    </message>
+    <message>
+        <source>Ring extends outside the image. Undo a point to adjust its size.</source>
+        <translation>环形超出图像边界，请撤销上一点并调整大小。</translation>
     </message>
     <message>
         <source>Click opposite corner for rectangle (Shift for square)</source>
@@ -473,6 +497,14 @@ Shapes</source>
         <translation>將剪貼板中的圖形插入此圖片</translation>
     </message>
     <message>
+        <source>Ring</source>
+        <translation>环形</translation>
+    </message>
+    <message>
+        <source>Fit the outer imaging circle and trace the inner edge, then cut with four points.</source>
+        <translation>拟合成像外圆并追踪内边缘，再用四个点切割。</translation>
+    </message>
+    <message>
         <source>Click to place linestrip points; Ctrl+click places the last one.</source>
         <translation>單擊放置折線的點；Ctrl+單擊放置最後一個點。</translation>
     </message>
@@ -793,6 +825,37 @@ Please select a different model or use AI-Box mode.</source>
     <message>
         <source>Configuration Error</source>
         <translation>設定錯誤</translation>
+    </message>
+</context>
+<context>
+    <name>RingContourDialog</name>
+    <message>
+        <source>Extract ring contour</source>
+        <translation>提取圆环轮廓</translation>
+    </message>
+    <message>
+        <source>The outer boundary follows the imaging circle. Adjust the inner-edge search position and smoothness, then confirm and click four points to cut.</source>
+        <translation>外轮廓沿成像圆边缘拟合。可调整内边缘搜索位置和平滑度，确认后点击四个点切割。</translation>
+    </message>
+    <message>
+        <source>Inner-edge position</source>
+        <translation>内边缘搜索位置</translation>
+    </message>
+    <message>
+        <source>Reset</source>
+        <translation>重置</translation>
+    </message>
+    <message>
+        <source>Contour smoothness</source>
+        <translation>轮廓平滑度</translation>
+    </message>
+    <message>
+        <source>Could not identify the imaging circle. Use an image with a visible circular field on a dark background.</source>
+        <translation>未能识别成像外圆，请使用暗背景上具有清晰圆形成像边界的图像。</translation>
+    </message>
+    <message>
+        <source>Green lines show the extracted outer and inner boundaries.</source>
+        <translation>绿色线条表示提取出的内外轮廓。</translation>
     </message>
 </context>
 <context>

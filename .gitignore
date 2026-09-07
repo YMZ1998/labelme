@@ -12,3 +12,5 @@
 # OS / IDE
 .DS_Store
 .idea/
+
+.out-of-scope/

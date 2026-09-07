@@ -12,6 +12,11 @@ from pathlib import Path
 from typing import AnyStr
 from typing import Final
 
+# Preserve package-relative imports when launched by file path (for example, in an IDE).
+if __name__ == "__main__" and not __package__:
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    __package__ = "labelme"
+
 from loguru import logger
 from PySide6 import QtCore
 from PySide6 import QtWidgets

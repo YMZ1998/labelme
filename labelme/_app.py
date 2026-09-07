@@ -66,6 +66,7 @@ from ._widgets import ZoomWidget
 from ._widgets import download_ai_model
 from ._widgets import format_shape_label
 from ._widgets.label_list_widget import LABEL_COLOR_ROLE
+from ._widgets.ring_contour_dialog import RingContourDialog
 
 
 class _ZoomMode(enum.Enum):
@@ -142,6 +143,7 @@ class _Actions(NamedTuple):
     create_rectangle_mode: QtGui.QAction
     create_oriented_rectangle_mode: QtGui.QAction
     create_circle_mode: QtGui.QAction
+    create_annular_sector_mode: QtGui.QAction
     create_line_mode: QtGui.QAction
     create_point_mode: QtGui.QAction
     create_line_strip_mode: QtGui.QAction
@@ -548,6 +550,17 @@ class MainWindow(QtWidgets.QMainWindow):
             tip=self.tr("Start drawing circles"),
             enabled=False,
         )
+        create_annular_sector_mode = action(
+            text=self.tr("Ring"),
+            slot=self._start_ring_segmentation,
+            shortcut=shortcuts["create_annular_sector"],
+            icon="annular_sector.svg",
+            tip=self.tr(
+                "Fit the outer imaging circle and trace the inner edge, "
+                "then cut with four points."
+            ),
+            enabled=False,
+        )
         create_line_mode = action(
             text=self.tr("Line"),
             slot=lambda: self._switch_canvas_mode(edit=False, create_mode="line"),
@@ -732,6 +745,7 @@ class MainWindow(QtWidgets.QMainWindow):
             ("rectangle", create_rectangle_mode),
             ("oriented_rectangle", create_oriented_rectangle_mode),
             ("circle", create_circle_mode),
+            ("annular_sector", create_annular_sector_mode),
             ("point", create_point_mode),
             ("line", create_line_mode),
             ("linestrip", create_line_strip_mode),
@@ -752,6 +766,7 @@ class MainWindow(QtWidgets.QMainWindow):
             create_rectangle_mode,
             create_oriented_rectangle_mode,
             create_circle_mode,
+            create_annular_sector_mode,
             create_line_mode,
             create_point_mode,
             create_line_strip_mode,
@@ -815,6 +830,7 @@ class MainWindow(QtWidgets.QMainWindow):
             create_rectangle_mode=create_rectangle_mode,
             create_oriented_rectangle_mode=create_oriented_rectangle_mode,
             create_circle_mode=create_circle_mode,
+            create_annular_sector_mode=create_annular_sector_mode,
             create_line_mode=create_line_mode,
             create_point_mode=create_point_mode,
             create_line_strip_mode=create_line_strip_mode,
@@ -1076,6 +1092,51 @@ class MainWindow(QtWidgets.QMainWindow):
 
         if file_or_dir:
             self._load_from_file_or_dir(file_or_dir=file_or_dir)
+        else:
+            self._restore_last_session(restore_output_dir=output_dir is None)
+
+    def _restore_last_session(self, *, restore_output_dir: bool) -> None:
+        path = self._window_state.value("lastPath", "", type=str)
+        directory = self._window_state.value("lastDirectory", "", type=str)
+        if not (path and Path(path).is_file()) and not (
+            directory and Path(directory).is_dir()
+        ):
+            return
+        if restore_output_dir:
+            output = self._window_state.value("lastOutputDirectory", "", type=str)
+            if output and Path(output).is_dir():
+                self._output_dir = Path(output)
+        if directory and Path(directory).is_dir():
+            self._import_images_from_dir(root_dir=directory)
+            if path in self.image_list:
+                self._load_file(image_or_label_path=path)
+                return
+            self._load_from_file_or_dir(file_or_dir=directory)
+        elif path and Path(path).is_file():
+            self._load_from_file_or_dir(file_or_dir=path)
+
+    def _remember_last_session(self) -> None:
+        if self._image_path is None and self._prev_opened_dir is None:
+            return
+        directory = (
+            self._prev_opened_dir
+            if self._image_path in self.image_list or not self._loaded_image_paths
+            else None
+        )
+        path = self._image_path
+        if not self._docks.file_dock.isEnabled() and self._label_file_path:
+            path = self._label_file_path
+        self._window_state.setValue(
+            "lastPath", str(Path(path).resolve()) if path else ""
+        )
+        self._window_state.setValue(
+            "lastDirectory", str(Path(directory).resolve()) if directory else ""
+        )
+        self._window_state.setValue(
+            "lastOutputDirectory",
+            str(self._output_dir.resolve()) if self._output_dir else "",
+        )
+        self._window_state.sync()
 
     def _setup_status_bar(self) -> _StatusBarWidgets:
         message = QtWidgets.QLabel(self.tr("%s started.") % __appname__)
@@ -1510,6 +1571,15 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         self._actions.delete.setEnabled(not drawing)
 
+    def _start_ring_segmentation(self) -> None:
+        if self._image.isNull():
+            return
+        dialog = RingContourDialog(image=self._image, parent=self)
+        if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted or dialog.mask is None:
+            return
+        self._canvas_widgets.canvas.set_ring_mask(dialog.mask)
+        self._switch_canvas_mode(edit=False, create_mode="annular_sector")
+
     def _switch_canvas_mode(self, *, edit: bool, create_mode: str | None) -> None:
         self._canvas_widgets.canvas.set_editing(value=edit, create_mode=create_mode)
         self._refresh_status_stats()
@@ -1885,12 +1955,30 @@ class MainWindow(QtWidgets.QMainWindow):
     def _on_new_shape(self) -> None:
         items = self._docks.unique_label_list.selectedItems()
         text = items[0].data(Qt.ItemDataRole.UserRole) if items else None
-        if self._config["display_label_popup"] or not text:
+        if self._config["display_label_popup"]:
             entry = self._label_dialog.popup(text=text)
         else:
-            entry = LabelDialogEntry(
-                label=text, flags={}, group_id=None, description=""
+            candidates = [
+                text,
+                self._window_state.value("lastLabel", "", type=str),
+                *(self._config["labels"] or []),
+                "object",
+            ]
+            text = next(
+                (
+                    label
+                    for label in candidates
+                    if label and self.validate_label(label=label)
+                ),
+                None,
             )
+            if text is None:
+                # An exact-label policy without any allowed labels needs input.
+                entry = self._label_dialog.popup(text=None)
+            else:
+                entry = LabelDialogEntry(
+                    label=text, flags={}, group_id=None, description=""
+                )
 
         if entry is not None and not self.validate_label(label=entry.label):
             self.show_error_message(
@@ -1906,6 +1994,7 @@ class MainWindow(QtWidgets.QMainWindow):
             return
 
         self._docks.label_list.clearSelection()
+        self._window_state.setValue("lastLabel", entry.label)
         shapes = self._canvas_widgets.canvas.set_last_label(
             text=entry.label, flags=entry.flags
         )
@@ -2362,6 +2451,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._window_state.setValue(WINDOW_SIZE_KEY, self.size())
         self._window_state.setValue(WINDOW_POSITION_KEY, self.pos())
         self._window_state.setValue(WINDOW_LAYOUT_KEY, self.saveState())
+        self._remember_last_session()
 
     def dragEnterEvent(self, a0: QtGui.QDragEnterEvent, /) -> None:
         # Accepting only drags that carry a loadable image keeps the cursor

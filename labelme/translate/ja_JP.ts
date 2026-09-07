@@ -105,6 +105,22 @@
         <translation>図形を編集中</translation>
     </message>
     <message>
+        <source>Ring: click the outer start point (1/4)</source>
+        <translation>Ring: click the outer start point (1/4)</translation>
+    </message>
+    <message>
+        <source>Ring: click the inner start point (2/4)</source>
+        <translation>Ring: click the inner start point (2/4)</translation>
+    </message>
+    <message>
+        <source>Ring: click the inner end point (3/4)</source>
+        <translation>Ring: click the inner end point (3/4)</translation>
+    </message>
+    <message>
+        <source>Ring: click the outer end point (4/4); hold Shift for the small arc</source>
+        <translation>Ring: click the outer end point (4/4); hold Shift for the small arc</translation>
+    </message>
+    <message>
         <source>Click start point for line</source>
         <translation>直線の始点をクリック</translation>
     </message>
@@ -147,6 +163,14 @@
     <message>
         <source>Right-click &amp; drag to copy shape</source>
         <translation>右クリック &amp; ドラッグで図形をコピー</translation>
+    </message>
+    <message>
+        <source>Cannot form a ring: check point order and avoid parallel radial sides. Undo a point to retry.</source>
+        <translation>Cannot form a ring: check point order and avoid parallel radial sides. Undo a point to retry.</translation>
+    </message>
+    <message>
+        <source>Ring extends outside the image. Undo a point to adjust its size.</source>
+        <translation>Ring extends outside the image. Undo a point to adjust its size.</translation>
     </message>
     <message>
         <source>Click opposite corner for rectangle (Shift for square)</source>
@@ -486,6 +510,14 @@ Shapes</source>
         <translation>クリップボードの図形をこの画像に挿入</translation>
     </message>
     <message>
+        <source>Ring</source>
+        <translation>Ring</translation>
+    </message>
+    <message>
+        <source>Fit the outer imaging circle and trace the inner edge, then cut with four points.</source>
+        <translation>Fit the outer imaging circle and trace the inner edge, then cut with four points.</translation>
+    </message>
+    <message>
         <source>Click to place linestrip points; Ctrl+click places the last one.</source>
         <translation>クリックで折れ線の点を置き、Ctrl+クリックで最後の点を置きます。</translation>
     </message>
@@ -807,6 +839,37 @@ Please select a different model or use AI-Box mode.</source>
     <message>
         <source>Configuration Error</source>
         <translation>設定エラー</translation>
+    </message>
+</context>
+<context>
+    <name>RingContourDialog</name>
+    <message>
+        <source>Extract ring contour</source>
+        <translation>Extract ring contour</translation>
+    </message>
+    <message>
+        <source>The outer boundary follows the imaging circle. Adjust the inner-edge search position and smoothness, then confirm and click four points to cut.</source>
+        <translation>The outer boundary follows the imaging circle. Adjust the inner-edge search position and smoothness, then confirm and click four points to cut.</translation>
+    </message>
+    <message>
+        <source>Inner-edge position</source>
+        <translation>Inner-edge position</translation>
+    </message>
+    <message>
+        <source>Reset</source>
+        <translation>Reset</translation>
+    </message>
+    <message>
+        <source>Contour smoothness</source>
+        <translation>Contour smoothness</translation>
+    </message>
+    <message>
+        <source>Could not identify the imaging circle. Use an image with a visible circular field on a dark background.</source>
+        <translation>Could not identify the imaging circle. Use an image with a visible circular field on a dark background.</translation>
+    </message>
+    <message>
+        <source>Green lines show the extracted outer and inner boundaries.</source>
+        <translation>Green lines show the extracted outer and inner boundaries.</translation>
     </message>
 </context>
 <context>

@@ -12,6 +12,7 @@ from typing import Literal
 from typing import cast
 
 import numpy as np
+import numpy.typing as npt
 from loguru import logger
 from PySide6 import QtCore
 from PySide6 import QtGui
@@ -25,6 +26,8 @@ from .. import _ai_models
 from .. import _automation
 from .. import _shape
 from .. import _utils
+from .._ring_segmentation import cut_ring
+from .._ring_segmentation import mask_contours
 from .._shape import CIRCLE_POINT_COUNT
 from .._shape import MIN_LINESTRIP_POINT_COUNT
 from .._shape import MIN_POLYGON_POINT_COUNT
@@ -105,12 +108,14 @@ def _shape_to_draft(shape: Shape, /) -> _DraftShape:
 
 
 MOVE_SPEED: Final[float] = 5.0
+RING_POINT_COUNT: Final = 4
 
 _CreateMode = Literal[
     "polygon",
     "rectangle",
     "oriented_rectangle",
     "circle",
+    "annular_sector",
     "line",
     "point",
     "linestrip",
@@ -129,6 +134,7 @@ _CREATE_MODE_TO_SHAPE_TYPE: Final[dict[_CreateMode, ShapeType]] = {
     "rectangle": "rectangle",
     "oriented_rectangle": "oriented_rectangle",
     "circle": "circle",
+    "annular_sector": "polygon",
     "line": "line",
     "point": "point",
     "linestrip": "linestrip",
@@ -179,6 +185,11 @@ class Canvas(QtWidgets.QWidget):
     mode: _CanvasMode = _CanvasMode.EDIT
 
     _create_mode: _CreateMode = "polygon"
+    _ring_major_arc: bool = True
+    _ring_control_points: tuple[QPointF, ...] = ()
+    _ring_error: str | None = None
+    _ring_mask: npt.NDArray[np.bool_] | None = None
+    _ring_outlines: tuple[Shape, ...] = ()
 
     _fill_drawing = False
 
@@ -447,10 +458,12 @@ class Canvas(QtWidgets.QWidget):
         # click before the next mouseMoveEvent extends at the real cursor.
         seed_point = self._current.points[0]
         seed_label = self._current.point_labels[0]
-        self._current = _DraftShape(shape_type=new_mode).add_point(
-            seed_point, label=seed_label
+        self._current = _DraftShape(
+            shape_type=_CREATE_MODE_TO_SHAPE_TYPE[new_mode]
+        ).add_point(seed_point, label=seed_label)
+        self._line = dataclasses.replace(
+            self._line, shape_type=_CREATE_MODE_TO_SHAPE_TYPE[new_mode]
         )
-        self._line = dataclasses.replace(self._line, shape_type=new_mode)
         self.update()
 
     def get_ai_model_name(self) -> str:
@@ -638,6 +651,19 @@ class Canvas(QtWidgets.QWidget):
     def _get_create_mode_message(self) -> str:
         assert self.mode == _CanvasMode.CREATE
         is_new: bool = self._current is None
+        if self.create_mode == "annular_sector":
+            if self._ring_error is not None and not is_new:
+                return self._ring_error
+            messages = (
+                self.tr("Ring: click the outer start point (1/4)"),
+                self.tr("Ring: click the inner start point (2/4)"),
+                self.tr("Ring: click the inner end point (3/4)"),
+                self.tr(
+                    "Ring: click the outer end point (4/4); "
+                    "hold Shift for the small arc"
+                ),
+            )
+            return messages[0 if is_new else min(len(self._current.points), 3)]
         if self.create_mode == "ai_points_to_shape":
             return self.tr(
                 "Click points to include or Shift+Click to exclude."
@@ -791,7 +817,9 @@ class Canvas(QtWidgets.QWidget):
         current = self._current
         assert current is not None
         mode = self.create_mode
-        if mode in POLYLINE_SHAPE_TYPES:
+        if mode in POLYLINE_SHAPE_TYPES or mode == "annular_sector":
+            self._ring_major_arc = not is_shift_pressed
+            self._ring_error = None
             self._line = dataclasses.replace(
                 self._line, points=(current.points[-1], pos), point_labels=(1, 1)
             )
@@ -1077,6 +1105,12 @@ class Canvas(QtWidgets.QWidget):
         if self._reject_incompatible_point_prompt():
             return
         if self._current is not None:
+            if self.create_mode == "annular_sector":
+                # Use the click itself even if mouse-move events were coalesced.
+                self._update_drawing_line(
+                    pos=self._project_drawing_pos_into_image(pos=pos),
+                    is_shift_pressed=is_shift_pressed,
+                )
             self._extend_current_shape(current=self._current, event=event)
             return
         self._start_new_shape(pos=pos, event=event, is_shift_pressed=is_shift_pressed)
@@ -1094,6 +1128,44 @@ class Canvas(QtWidgets.QWidget):
         self, *, current: _DraftShape, event: QtGui.QMouseEvent
     ) -> None:
         mode = self.create_mode
+        if mode == "annular_sector":
+            vertex = self._line.points[1]
+            candidate = current.add_point(vertex)
+            if len(candidate.points) == RING_POINT_COUNT:
+                self._ring_major_arc = not bool(
+                    event.modifiers() & Qt.KeyboardModifier.ShiftModifier
+                )
+                try:
+                    polygon = self._ring_polygon(candidate.points)
+                except ValueError:
+                    self._ring_error = self.tr(
+                        "Cannot form a ring: check point order and avoid "
+                        "parallel radial sides. Undo a point to retry."
+                    )
+                    return
+                if not self._allow_out_of_bounds_points and any(
+                    self.is_out_of_pixmap(point) for point in polygon
+                ):
+                    self._ring_error = self.tr(
+                        "Ring extends outside the image. "
+                        "Undo a point to adjust its size."
+                    )
+                    return
+                self._ring_control_points = candidate.points
+                self._current = _DraftShape(
+                    shape_type="polygon",
+                    points=polygon,
+                    point_labels=(1,) * len(polygon),
+                )
+                self._finalize()
+            else:
+                self._current = candidate
+                self._line = dataclasses.replace(
+                    self._line, points=(vertex, vertex), point_labels=(1, 1)
+                )
+                self._update_status(extra_messages=None)
+                self.update()
+            return
         if mode in ("polygon", "linestrip", "ai_points_to_shape"):
             self._commit_preview_vertex(current=current, event=event)
         elif mode == "oriented_rectangle":
@@ -1358,6 +1430,8 @@ class Canvas(QtWidgets.QWidget):
             return False
         if self._current is None:
             return False
+        if self.create_mode == "annular_sector":
+            return False
         if self.create_mode == "ai_points_to_shape":
             return True
         if self.create_mode == "linestrip":
@@ -1621,13 +1695,20 @@ class Canvas(QtWidgets.QWidget):
     def _should_draw_crosshair(self, *, cursor: QPointF | None) -> bool:
         if self.mode != _CanvasMode.CREATE:
             return False
-        if not self._crosshair[self._create_mode]:
+        if not self._crosshair.get(self._create_mode, False):
             return False
         if cursor is None:
             return False
         return not self._should_constrain_to_pixmap(cursor)
 
     def _draw_committed_shapes_layer(self, painter: QtGui.QPainter, /) -> None:
+        if self.mode == _CanvasMode.CREATE and self.create_mode == "annular_sector":
+            context = self._draft_render_context(
+                selected=False, fill=False, highlight=None, rotation_highlight=None
+            )
+            context = dataclasses.replace(context, point_size=0)
+            for outline in self._ring_outlines:
+                render_shape(painter=painter, shape=outline, context=context)
         for shape in self.shapes:
             if not shape.visible:
                 continue
@@ -1709,11 +1790,49 @@ class Canvas(QtWidgets.QWidget):
     def _build_preview_shapes(self) -> list[Shape]:
         if self._current is None:
             return []
+        if (
+            self.create_mode == "annular_sector"
+            and len(self._current.points) == RING_POINT_COUNT - 1
+        ):
+            try:
+                points = self._ring_polygon(
+                    self._current.points + (self._line.points[1],)
+                )
+            except ValueError:
+                return []
+            return [
+                _draft_to_shape(
+                    _DraftShape(
+                        shape_type="polygon",
+                        points=points,
+                        point_labels=(1,) * len(points),
+                        closed=True,
+                    )
+                )
+            ]
         if self.create_mode == "polygon":
             return [self._build_polygon_preview(current=self._current)]
         if self.create_mode == "ai_points_to_shape":
             return self._build_ai_points_preview(current=self._current)
         return []
+
+    def _ring_polygon(self, points: tuple[QPointF, ...]) -> tuple[QPointF, ...]:
+        if self._ring_mask is None:
+            raise ValueError("Extract the ring contour before cutting")
+        polygon = cut_ring(
+            self._ring_mask,
+            [(p.x(), p.y()) for p in points],
+            major_arc=self._ring_major_arc,
+        )
+        return tuple(QPointF(float(x), float(y)) for x, y in polygon)
+
+    def set_ring_mask(self, mask: npt.NDArray[np.bool_]) -> None:
+        self._ring_mask = mask.copy()
+        self._ring_outlines = tuple(
+            Shape(shape_type="polygon", points=contour, closed=True)
+            for contour in mask_contours(mask)
+        )
+        self.update()
 
     def _build_polygon_preview(self, *, current: _DraftShape) -> Shape:
         # The cursor closes the shape, so previewing a fill needs one fewer point.
@@ -1978,6 +2097,22 @@ class Canvas(QtWidgets.QWidget):
         return shapes
 
     def undo_last_line(self) -> None:
+        if self.create_mode == "annular_sector":
+            # Cancelling the label dialog returns to the fourth control point.
+            self.shapes.pop()
+            self._current = _DraftShape(
+                shape_type="polygon",
+                points=self._ring_control_points[:-1],
+                point_labels=(1,) * (RING_POINT_COUNT - 1),
+            )
+            self._line = _DraftShape(
+                shape_type="polygon",
+                points=self._ring_control_points[-2:],
+                point_labels=(1, 1),
+            )
+            self.drawing_polygon.emit(True)  # noqa: FBT003 -- Qt signal
+            self.update()
+            return
         if self.create_mode in _AI_CREATE_MODES:
             # Remove all unlabeled shapes at the tail (added by AI in one shot)
             while self.shapes and self.shapes[-1].label is None:
@@ -2012,6 +2147,7 @@ class Canvas(QtWidgets.QWidget):
         self.drawing_polygon.emit(True)  # noqa: FBT003 -- Qt signal payload is positional
 
     def undo_last_point(self) -> None:
+        self._ring_error = None
         current = self._current
         if current is None or current.closed:
             return
@@ -2042,6 +2178,8 @@ class Canvas(QtWidgets.QWidget):
         self._set_ai_existing_shape_highlights(shapes=[])
 
     def load_pixmap(self, *, pixmap: QtGui.QPixmap, clear_shapes: bool = True) -> None:
+        self._ring_mask = None
+        self._ring_outlines = ()
         pixmap_arr = _utils.img_qt_to_arr(pixmap.toImage())
         self.pixmap = pixmap
         self._pixmap_hash = hash(pixmap_arr.tobytes())
