@@ -1,9 +1,9 @@
 # Strip annotations
 
-Choose **Strip**, then click along the centerline of a thin region. Use extra
-points where the target bends. Press Enter or Space, double-click, or
-Ctrl/Cmd+click the last point to finish. Labelme expands the centerline into a
-closed, editable polygon.
+Choose **Strip**, then draw a normal polyline along the centerline of a thin
+region. Use extra points where the target bends. Press Enter or Space,
+double-click, or Ctrl/Cmd+click the last point to finish. Labelme rasterizes the
+polyline and dilates it into a closed, editable polygon.
 
 Set the width in the project-root `config.ini`:
 

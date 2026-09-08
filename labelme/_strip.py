@@ -77,7 +77,10 @@ def centerline_to_strip(
     if np.count_nonzero(line_mask) < MINIMUM_CENTERLINE_POINTS:
         raise ValueError("Strip centerline has zero length")
 
-    strip_mask = ndimage.distance_transform_edt(~line_mask) <= half_width
+    radius = int(np.ceil(half_width))
+    row_offsets, column_offsets = np.ogrid[-radius : radius + 1, -radius : radius + 1]
+    disk = row_offsets**2 + column_offsets**2 <= half_width**2
+    strip_mask = ndimage.binary_dilation(line_mask, structure=disk)
     contours = measure.find_contours(np.pad(strip_mask, 1), 0.5)
     if not contours:
         raise ValueError("Could not create strip contour")

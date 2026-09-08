@@ -151,8 +151,8 @@ def test_arrow_key_still_moves_selected_shape(*, canvas: Canvas) -> None:
 
 @pytest.mark.gui
 def test_finalize_strip_converts_centerline_to_polygon(*, canvas: Canvas) -> None:
-    canvas.create_mode = "strip"
-    canvas.set_strip_half_width(value=5)
+    canvas.create_mode = "linestrip"
+    canvas.set_strip_expansion(enabled=True, half_width=5)
     canvas._current = _DraftShape(
         shape_type="linestrip",
         points=(QPointF(20, 20), QPointF(50, 20), QPointF(50, 40)),

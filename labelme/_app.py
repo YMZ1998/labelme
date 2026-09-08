@@ -592,7 +592,7 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         create_line_strip_mode = action(
             text=self.tr("LineStrip"),
-            slot=lambda: self._switch_canvas_mode(edit=False, create_mode="linestrip"),
+            slot=self._start_linestrip,
             shortcut=shortcuts["create_linestrip"],
             icon="phosphor/line-segments.svg",
             tip=self.tr(
@@ -1641,10 +1641,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self._switch_canvas_mode(edit=False, create_mode="annular_sector")
 
     def _start_strip(self) -> None:
-        self._canvas_widgets.canvas.set_strip_half_width(
-            value=load_strip_half_width()
+        self._canvas_widgets.canvas.set_strip_expansion(
+            enabled=True, half_width=load_strip_half_width()
         )
-        self._switch_canvas_mode(edit=False, create_mode="strip")
+        self._switch_canvas_mode(edit=False, create_mode="linestrip")
+        self._actions.create_line_strip_mode.setEnabled(True)
+        self._actions.create_strip_mode.setEnabled(False)
+
+    def _start_linestrip(self) -> None:
+        self._canvas_widgets.canvas.set_strip_expansion(enabled=False)
+        self._switch_canvas_mode(edit=False, create_mode="linestrip")
 
     def _switch_canvas_mode(self, *, edit: bool, create_mode: str | None) -> None:
         self._canvas_widgets.canvas.set_editing(value=edit, create_mode=create_mode)

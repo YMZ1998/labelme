@@ -121,7 +121,6 @@ _CreateMode = Literal[
     "line",
     "point",
     "linestrip",
-    "strip",
     "ai_points_to_shape",
     "ai_box_to_shape",
 ]
@@ -141,7 +140,6 @@ _CREATE_MODE_TO_SHAPE_TYPE: Final[dict[_CreateMode, ShapeType]] = {
     "line": "line",
     "point": "point",
     "linestrip": "linestrip",
-    "strip": "linestrip",
     "ai_points_to_shape": "points",
     "ai_box_to_shape": "rectangle",
 }
@@ -197,6 +195,7 @@ class Canvas(QtWidgets.QWidget):
     _ring_outlines: tuple[Shape, ...] = ()
     _ring_point_spacing: float = 24.0
     _strip_half_width: float = 8.0
+    _expand_linestrip_to_strip: bool = False
     _strip_centerline_points: tuple[QPointF, ...] = ()
 
     _fill_drawing = False
@@ -713,13 +712,6 @@ class Canvas(QtWidgets.QWidget):
                 return self.tr(
                     "Click next point or finish by Ctrl/Cmd+Click for linestrip"
                 )
-        if self.create_mode == "strip":
-            if is_new:
-                return self.tr("Strip: click the first centerline point")
-            return self.tr(
-                "Strip: click along the centerline; "
-                "press Enter or double-click to finish"
-            )
         if self.create_mode == "circle":
             if is_new:
                 return self.tr("Click center point for circle")
@@ -1200,7 +1192,7 @@ class Canvas(QtWidgets.QWidget):
                 self._update_status(extra_messages=None)
                 self.update()
             return
-        if mode in ("polygon", "linestrip", "strip", "ai_points_to_shape"):
+        if mode in ("polygon", "linestrip", "ai_points_to_shape"):
             self._commit_preview_vertex(current=current, event=event)
         elif mode == "oriented_rectangle":
             if len(current.points) == ORIENTED_RECTANGLE_POINT_COUNT:
@@ -1468,7 +1460,7 @@ class Canvas(QtWidgets.QWidget):
             return False
         if self.create_mode == "ai_points_to_shape":
             return True
-        if self.create_mode in ("linestrip", "strip"):
+        if self.create_mode == "linestrip":
             return len(self._current.points) >= MIN_LINESTRIP_POINT_COUNT
         if self.create_mode == "oriented_rectangle":
             # Points 2 and 3 are seeded as duplicates of points 1 and 0 after
@@ -1872,10 +1864,15 @@ class Canvas(QtWidgets.QWidget):
         )
         self.update()
 
-    def set_strip_half_width(self, *, value: float) -> None:
-        if not np.isfinite(value) or value <= 0:
+    def set_strip_expansion(self, *, enabled: bool, half_width: float = 8.0) -> None:
+        """Optionally expand completed linestrips into strip polygons."""
+        if not enabled:
+            self._expand_linestrip_to_strip = False
+            return
+        if not np.isfinite(half_width) or half_width <= 0:
             raise ValueError("Strip half-width must be positive and finite")
-        self._strip_half_width = value
+        self._strip_half_width = half_width
+        self._expand_linestrip_to_strip = True
 
     def _build_polygon_preview(self, *, current: _DraftShape) -> Shape:
         # The cursor closes the shape, so previewing a fill needs one fewer point.
@@ -1961,7 +1958,7 @@ class Canvas(QtWidgets.QWidget):
             self._set_ai_existing_shape_highlights(
                 shapes=proposal.matching_existing_shapes
             )
-        elif self.create_mode == "strip":
+        elif self.create_mode == "linestrip" and self._expand_linestrip_to_strip:
             self._strip_centerline_points = self._current.points
             try:
                 polygon = centerline_to_strip(
@@ -2184,7 +2181,7 @@ class Canvas(QtWidgets.QWidget):
             self.drawing_polygon.emit(True)  # noqa: FBT003 -- Qt signal
             self.update()
             return
-        if self.create_mode == "strip":
+        if self.create_mode == "linestrip" and self._expand_linestrip_to_strip:
             self.shapes.pop()
             self._current = _DraftShape(
                 shape_type="linestrip",
