@@ -13,6 +13,9 @@ half_width = 8
 ```
 
 `half_width` is measured in image pixels and accepts values from 1 through 100.
+Choose **Strip Settings…** in the left toolbar to change and save this value
+without editing the file manually. Opening the normal **Strip** tool does not
+show a dialog.
 The resulting full width is approximately twice this value. The first version
 uses a constant width along the centerline; edit the resulting polygon when the
 target width varies.

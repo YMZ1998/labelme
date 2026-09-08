@@ -50,7 +50,10 @@ from ._shape import Shape
 from ._shape import ShapeType
 from ._shape_clipboard import ShapeClipboard
 from ._shape_color import resolve_shape_color
+from ._strip import MAXIMUM_HALF_WIDTH
+from ._strip import MINIMUM_HALF_WIDTH
 from ._strip import load_strip_half_width
+from ._strip import save_strip_half_width
 from ._widgets import AiAssistedAnnotationWidget
 from ._widgets import AiTextToAnnotationWidget
 from ._widgets import BrightnessContrastDialog
@@ -152,6 +155,7 @@ class _Actions(NamedTuple):
     create_point_mode: QtGui.QAction
     create_line_strip_mode: QtGui.QAction
     create_strip_mode: QtGui.QAction
+    create_strip_settings_mode: QtGui.QAction
     create_ai_points_to_shape_mode: QtGui.QAction
     create_ai_box_to_shape_mode: QtGui.QAction
     open_next_img: QtGui.QAction
@@ -610,6 +614,14 @@ class MainWindow(QtWidgets.QMainWindow):
             ),
             enabled=False,
         )
+        create_strip_settings_mode = action(
+            text=self.tr("Strip") + " " + self.tr("Settings…"),
+            slot=self._open_strip_settings,
+            shortcut=None,
+            icon="phosphor/sliders-horizontal.svg",
+            tip=self.tr("Adjust the strip width."),
+            enabled=False,
+        )
         create_ai_points_to_shape_mode = action(
             text=self.tr("AI-Points"),
             slot=lambda: self._switch_canvas_mode(
@@ -774,6 +786,7 @@ class MainWindow(QtWidgets.QMainWindow):
             ("line", create_line_mode),
             ("linestrip", create_line_strip_mode),
             ("strip", create_strip_mode),
+            ("strip_settings", create_strip_settings_mode),
             ("ai_points_to_shape", create_ai_points_to_shape_mode),
             ("ai_box_to_shape", create_ai_box_to_shape_mode),
         ]
@@ -797,6 +810,7 @@ class MainWindow(QtWidgets.QMainWindow):
             create_point_mode,
             create_line_strip_mode,
             create_strip_mode,
+            create_strip_settings_mode,
             create_ai_points_to_shape_mode,
             create_ai_box_to_shape_mode,
             brightness_contrast,
@@ -863,6 +877,7 @@ class MainWindow(QtWidgets.QMainWindow):
             create_point_mode=create_point_mode,
             create_line_strip_mode=create_line_strip_mode,
             create_strip_mode=create_strip_mode,
+            create_strip_settings_mode=create_strip_settings_mode,
             create_ai_points_to_shape_mode=create_ai_points_to_shape_mode,
             create_ai_box_to_shape_mode=create_ai_box_to_shape_mode,
             open_next_img=open_next_img,
@@ -1651,6 +1666,23 @@ class MainWindow(QtWidgets.QMainWindow):
     def _start_linestrip(self) -> None:
         self._canvas_widgets.canvas.set_strip_expansion(enabled=False)
         self._switch_canvas_mode(edit=False, create_mode="linestrip")
+
+    def _open_strip_settings(self) -> None:
+        current = load_strip_half_width()
+        value, accepted = QtWidgets.QInputDialog.getInt(
+            self,
+            self.tr("Strip") + " " + self.tr("Settings…"),
+            self.tr("Half width (pixels):"),
+            current,
+            MINIMUM_HALF_WIDTH,
+            MAXIMUM_HALF_WIDTH,
+        )
+        if not accepted:
+            return
+        save_strip_half_width(value)
+        self._canvas_widgets.canvas.set_strip_expansion(
+            enabled=True, half_width=value
+        )
 
     def _switch_canvas_mode(self, *, edit: bool, create_mode: str | None) -> None:
         self._canvas_widgets.canvas.set_editing(value=edit, create_mode=create_mode)

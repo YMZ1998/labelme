@@ -8,6 +8,7 @@ import pytest
 from labelme._strip import DEFAULT_HALF_WIDTH
 from labelme._strip import centerline_to_strip
 from labelme._strip import load_strip_half_width
+from labelme._strip import save_strip_half_width
 
 
 def test_centerline_to_strip_creates_closed_width_around_line() -> None:
@@ -51,3 +52,18 @@ def test_invalid_strip_half_width_uses_default(
     )
 
     assert load_strip_half_width(config_file=config_file) == DEFAULT_HALF_WIDTH
+
+
+def test_strip_half_width_can_be_saved_without_losing_comments(tmp_path: Path) -> None:
+    config_file = tmp_path / "config.ini"
+    config_file.write_text(
+        "[ring]\n# Keep this comment.\npoint_spacing = 36\n\n"
+        "[strip]\n# Keep this too.\nhalf_width = 4\n",
+        encoding="utf-8",
+    )
+
+    save_strip_half_width(15, config_file=config_file)
+
+    assert load_strip_half_width(config_file=config_file) == 15
+    assert "# Keep this comment." in config_file.read_text(encoding="utf-8")
+    assert "# Keep this too." in config_file.read_text(encoding="utf-8")

@@ -45,6 +45,43 @@ def load_strip_half_width(*, config_file: Path | None = None) -> int:
     return value
 
 
+def save_strip_half_width(
+    value: int, *, config_file: Path | None = None
+) -> None:
+    """Persist the strip half-width while preserving existing INI comments."""
+    if not MINIMUM_HALF_WIDTH <= value <= MAXIMUM_HALF_WIDTH:
+        raise ValueError(
+            f"half_width must be between {MINIMUM_HALF_WIDTH} "
+            f"and {MAXIMUM_HALF_WIDTH}"
+        )
+    config_file = config_file or get_ring_config_file()
+    content = config_file.read_text(encoding="utf-8") if config_file.exists() else ""
+    lines = content.splitlines()
+    section_index: int | None = None
+    next_section_index = len(lines)
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.casefold() == "[strip]":
+            section_index = index
+            continue
+        if section_index is not None and stripped.startswith("["):
+            next_section_index = index
+            break
+    setting = f"half_width = {value}"
+    if section_index is None:
+        if lines and lines[-1].strip():
+            lines.append("")
+        lines.extend(("[strip]", setting))
+    else:
+        for index in range(section_index + 1, next_section_index):
+            if lines[index].partition("=")[0].strip().casefold() == "half_width":
+                lines[index] = setting
+                break
+        else:
+            lines.insert(next_section_index, setting)
+    config_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def centerline_to_strip(
     points: npt.ArrayLike,
     *,
