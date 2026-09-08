@@ -12,7 +12,9 @@ background, then traces the inner dark-to-bright edge in polar coordinates.
 
 Smoothness constraints join the inner boundary across noisy or shadowed angles.
 
-The outer boundary is the imaging field, not an internal tissue boundary.
+The outer boundary is the imaging field, not an internal tissue boundary. A
+radial intensity-edge refinement keeps the fitted circle from shrinking inward
+when the outermost image pixels have low contrast.
 
 
 

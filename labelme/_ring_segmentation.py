@@ -45,7 +45,47 @@ def fit_imaging_circle(gray: npt.NDArray[np.float64]) -> tuple[float, float, flo
         0 < center[0] < width and 0 < center[1] < height and radius > minimum_points / 3
     ):
         raise ValueError("Invalid imaging circle")
-    return float(center[0]), float(center[1]), radius
+    return _refine_outer_radius(
+        gray, circle=(float(center[0]), float(center[1]), radius)
+    )
+
+
+def _refine_outer_radius(
+    gray: npt.NDArray[np.float64], *, circle: tuple[float, float, float]
+) -> tuple[float, float, float]:
+    """Move a threshold-based radius to the outer radial intensity edge."""
+    center_x, center_y, radius = circle
+    angles = np.linspace(0, 2 * math.pi, 720, endpoint=False)
+    radii = np.linspace(radius * 0.88, radius * 1.18, 180)
+    sample_x = center_x + np.cos(angles[:, None]) * radii
+    sample_y = center_y + np.sin(angles[:, None]) * radii
+    height, width = gray.shape
+    valid = (
+        (sample_x >= 0)
+        & (sample_x <= width - 1)
+        & (sample_y >= 0)
+        & (sample_y <= height - 1)
+    )
+    samples = ndimage.map_coordinates(
+        gray,
+        [sample_y, sample_x],
+        order=1,
+        mode="nearest",
+    )
+    samples[~valid] = np.nan
+    with np.errstate(all="ignore"):
+        profile = np.nanmedian(samples, axis=0)
+    finite = np.isfinite(profile)
+    if np.count_nonzero(finite) < len(profile) * 0.8:
+        return circle
+    profile = np.interp(radii, radii[finite], profile[finite])
+    gradient = np.gradient(ndimage.gaussian_filter1d(profile, sigma=2.5))
+    edge_index = int(np.argmin(gradient))
+    edge_radius = float(radii[edge_index])
+    contrast = float(np.nanpercentile(samples, 75) - np.nanpercentile(samples, 25))
+    if -gradient[edge_index] < max(0.25, contrast * 0.015):
+        return circle
+    return center_x, center_y, edge_radius
 
 
 def estimate_inner_radius(

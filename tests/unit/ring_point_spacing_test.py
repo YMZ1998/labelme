@@ -10,6 +10,7 @@ from pytestqt.qtbot import QtBot
 from labelme._ring_config import DEFAULT_POINT_SPACING
 from labelme._ring_config import load_ring_point_spacing
 from labelme._ring_segmentation import cut_ring
+from labelme._ring_segmentation import fit_imaging_circle
 from labelme._ring_segmentation import resample_closed_contour
 from labelme._ring_segmentation import trace_default_imaging_ring
 from labelme._widgets.ring_contour_dialog import RingContourDialog
@@ -98,3 +99,24 @@ def test_default_ring_extraction_finds_annular_region() -> None:
     assert mask[100, 150]
     assert not mask[100, 100]
     assert not mask[100, 190]
+
+
+def test_outer_circle_uses_low_contrast_outer_edge() -> None:
+    yy, xx = np.indices((240, 240))
+    radius = np.hypot(xx - 120, yy - 120)
+    rng = np.random.default_rng(7)
+    image = np.zeros((240, 240), dtype=np.float64)
+    interior = radius <= 88
+    image[interior] = 35 + rng.normal(0, 8, np.count_nonzero(interior))
+    transition = (radius > 88) & (radius <= 100)
+    image[transition] = (
+        (100 - radius[transition]) / 12 * 35
+        + rng.normal(0, 3, np.count_nonzero(transition))
+    )
+    image = np.clip(image, 0, 255)
+
+    center_x, center_y, fitted_radius = fit_imaging_circle(image)
+
+    assert center_x == pytest.approx(120, abs=2)
+    assert center_y == pytest.approx(120, abs=2)
+    assert fitted_radius == pytest.approx(94, abs=4)
