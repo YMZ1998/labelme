@@ -17,6 +17,7 @@ from labelme import __appname__
 from labelme import _app
 from labelme import _automation
 from labelme._label_file import ShapeDict
+from labelme._roi_tools_config import RoiToolConfig
 from labelme._shape import Shape
 
 
@@ -70,6 +71,31 @@ def test_is_valid_label(
         )
         is expected
     )
+
+
+@pytest.mark.parametrize(
+    ("create_mode", "strip_enabled", "expected"),
+    [
+        ("polygon", False, "1"),
+        ("linestrip", True, "2"),
+        ("annular_sector", False, "5"),
+        ("rectangle", False, None),
+    ],
+)
+def test_default_roi_label_depends_on_active_tool(
+    *, create_mode: str, strip_enabled: bool, expected: str | None
+) -> None:
+    class CanvasHarness:
+        is_strip_expansion_enabled = strip_enabled
+
+        def __init__(self) -> None:
+            self.create_mode = create_mode
+
+    class Harness:
+        _roi_tool_config = RoiToolConfig()
+        _canvas_widgets = type("Widgets", (), {"canvas": CanvasHarness()})()
+
+    assert _app.MainWindow._default_roi_label(Harness()) == expected
 
 
 def test_default_ring_action_skips_settings_dialog(

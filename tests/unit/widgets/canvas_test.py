@@ -2343,6 +2343,25 @@ def test_double_click_edge_adds_point_and_commits_edit(
 
 
 @pytest.mark.gui
+def test_shift_left_click_selects_roi_while_in_create_mode(*, canvas: Canvas) -> None:
+    shape = _make_polygon()
+    canvas.load_shapes(shapes=[shape])
+    canvas.set_editing(value=False, create_mode="polygon")
+    selections: list[list[Shape]] = []
+    canvas.selection_changed.connect(selections.append)
+
+    canvas._press_left(
+        pos=QPointF(25, 25),
+        event=_left_press(
+            pos=QPointF(25, 25), modifiers=Qt.KeyboardModifier.ShiftModifier
+        ),
+    )
+
+    assert selections == [[shape]]
+    assert canvas._current is None
+
+
+@pytest.mark.gui
 def test_remove_selected_point_repaints(
     *, canvas: Canvas, monkeypatch: pytest.MonkeyPatch
 ) -> None:

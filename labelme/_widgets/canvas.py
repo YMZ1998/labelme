@@ -433,6 +433,10 @@ class Canvas(QtWidgets.QWidget):
         return self._current is not None
 
     @property
+    def is_strip_expansion_enabled(self) -> bool:
+        return self._expand_linestrip_to_strip
+
+    @property
     def create_mode(self) -> _CreateMode:
         return self._create_mode
 
@@ -1112,6 +1116,14 @@ class Canvas(QtWidgets.QWidget):
     def _press_left(self, *, pos: QPointF, event: QtGui.QMouseEvent) -> None:
         is_shift_pressed = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
         if self.mode == _CanvasMode.CREATE:
+            if (
+                is_shift_pressed
+                and self._current is None
+                and self._find_shape_at_point(pos) is not None
+            ):
+                self._select_shape_point(pos, multiple_selection_mode=True)
+                self.update()
+                return
             self._press_left_while_drawing(
                 pos=pos, event=event, is_shift_pressed=is_shift_pressed
             )

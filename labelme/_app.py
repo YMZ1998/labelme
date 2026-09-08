@@ -46,6 +46,8 @@ from ._label_file import write_label_file
 from ._label_flags import compile_label_flags
 from ._ring_config import load_ring_point_spacing
 from ._ring_segmentation import trace_default_imaging_ring
+from ._roi_tools_config import load_roi_tool_config
+from ._roi_tools_config import merge_roi_shortcuts
 from ._shape import Shape
 from ._shape import ShapeType
 from ._shape_clipboard import ShapeClipboard
@@ -241,6 +243,10 @@ class MainWindow(QtWidgets.QMainWindow):
             config_file=config_file, config_overrides=config_overrides
         )
         self._config_overrides = config_overrides or {}
+        self._roi_tool_config = load_roi_tool_config()
+        self._shortcuts = merge_roi_shortcuts(
+            self._config["shortcuts"], roi=self._roi_tool_config
+        )
         self._shape_color_preview = None
 
         self._shape_clipboard = ShapeClipboard(parent=self)
@@ -341,7 +347,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def _setup_actions(self) -> _Actions:
         action = functools.partial(_utils.new_action, self)
         separator = functools.partial(_utils.new_separator, self)
-        shortcuts = self._config["shortcuts"]
+        shortcuts = self._shortcuts
 
         about = action(
             text=f"&About {__appname__}",
@@ -607,7 +613,7 @@ class MainWindow(QtWidgets.QMainWindow):
         create_strip_mode = action(
             text=self.tr("Strip"),
             slot=self._start_strip,
-            shortcut=None,
+            shortcut=shortcuts["create_strip"],
             icon="phosphor/line-segments.svg",
             tip=self.tr(
                 "Click along a thin region's centerline to create a strip polygon."
@@ -907,7 +913,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def _setup_menus(self) -> _Menus:
         action = functools.partial(_utils.new_action, self)
         separator = functools.partial(_utils.new_separator, self)
-        shortcuts = self._config["shortcuts"]
+        shortcuts = self._shortcuts
 
         quit_ = action(
             text=self.tr("&Quit"),
@@ -2061,7 +2067,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _on_new_shape(self) -> None:
         items = self._docks.unique_label_list.selectedItems()
-        text = items[0].data(Qt.ItemDataRole.UserRole) if items else None
+        selected_text = items[0].data(Qt.ItemDataRole.UserRole) if items else None
+        text = self._default_roi_label() or selected_text
         if self._config["display_label_popup"]:
             entry = self._label_dialog.popup(text=text)
         else:
@@ -2114,6 +2121,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self._actions.undo_last_point.setEnabled(False)
         self._actions.undo.setEnabled(True)
         self.mark_dirty()
+
+    def _default_roi_label(self) -> str | None:
+        canvas = self._canvas_widgets.canvas
+        if canvas.create_mode == "annular_sector":
+            return self._roi_tool_config.ring_label
+        if canvas.create_mode == "linestrip" and canvas.is_strip_expansion_enabled:
+            return self._roi_tool_config.strip_label
+        if canvas.create_mode == "polygon":
+            return self._roi_tool_config.polygon_label
+        return None
 
     def _on_inference_produced_no_shapes(self) -> None:
         self.show_status_message(
