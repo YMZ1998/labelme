@@ -2302,6 +2302,47 @@ def test_add_point_to_edge_repaints(
 
 
 @pytest.mark.gui
+def test_double_click_edge_adds_point_and_commits_edit(
+    *, canvas: Canvas
+) -> None:
+    shape = _make_polygon()
+    canvas.load_shapes(shapes=[shape])
+    moved = Mock()
+    canvas.shape_moved.connect(moved)
+    canvas._set_highlight(
+        hovered_shape=shape,
+        hovered_edge=0,
+        hovered_vertex=None,
+        hovered_rotation=None,
+    )
+    click_pos = canvas.transform_image_point_to_widget(QPointF(25, 10))
+    event = QtGui.QMouseEvent(
+        QtCore.QEvent.Type.MouseButtonDblClick,
+        click_pos,
+        click_pos,
+        click_pos,
+        Qt.MouseButton.LeftButton,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+
+    canvas.mouseDoubleClickEvent(event)
+
+    assert shape.points.tolist() == [
+        [25.0, 10.0],
+        [10.0, 10.0],
+        [40.0, 10.0],
+        [40.0, 40.0],
+        [10.0, 40.0],
+    ]
+    assert canvas._hovered_vertex == 0
+    assert canvas._hovered_edge is None
+    assert canvas._is_moving_shape is False
+    assert len(canvas.shape_backups) == 2
+    moved.assert_called_once_with()
+
+
+@pytest.mark.gui
 def test_remove_selected_point_repaints(
     *, canvas: Canvas, monkeypatch: pytest.MonkeyPatch
 ) -> None:

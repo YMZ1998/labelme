@@ -338,6 +338,37 @@ def test_add_point_via_context_menu_action(
 
 
 @pytest.mark.gui
+def test_double_click_edge_adds_point(
+    *,
+    qtbot: QtBot,
+    annotated_win: MainWindow,
+    tmp_path: Path,
+    pause: bool,
+) -> None:
+    canvas = annotated_win._canvas_widgets.canvas
+    shape = canvas.shapes[_SHAPE_INDEX]
+    num_points_before = len(shape.points)
+    midpoint = _find_edge_midpoint_clear_of_vertices(canvas=canvas, shape=shape)
+    midpoint_widget = image_to_widget_pos(canvas=canvas, image_pos=midpoint)
+
+    qtbot.mouseMove(canvas, pos=midpoint_widget)
+    qtbot.wait(100)
+    qtbot.mouseDClick(
+        canvas,
+        Qt.MouseButton.LeftButton,
+        pos=midpoint_widget,
+    )
+    qtbot.wait(50)
+
+    assert len(shape.points) == num_points_before + 1
+    inserted = np.array([midpoint.x(), midpoint.y()])
+    assert np.linalg.norm(shape.points - inserted, axis=1).min() < 1
+
+    _save_and_check(win=annotated_win, tmp_path=tmp_path)
+    close_or_pause(qtbot=qtbot, widget=annotated_win, pause=pause)
+
+
+@pytest.mark.gui
 def test_remove_point_from_shape(
     *,
     qtbot: QtBot,

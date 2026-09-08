@@ -1472,7 +1472,17 @@ class Canvas(QtWidgets.QWidget):
             )
         return len(self._current.points) >= MIN_POLYGON_POINT_COUNT
 
-    def mouseDoubleClickEvent(self, _a0: QtGui.QMouseEvent, /) -> None:
+    def mouseDoubleClickEvent(self, a0: QtGui.QMouseEvent, /) -> None:
+        if (
+            self.mode == _CanvasMode.EDIT
+            and a0.button() == Qt.MouseButton.LeftButton
+            and self._is_edge_selected()
+        ):
+            self._prev_move_point = self.transform_widget_point_to_image(a0.position())
+            self.add_point_to_edge()
+            self._commit_pending_shape_move()
+            self._update_status(extra_messages=None)
+            return
         if self._double_click != "close":
             return
         if not self._can_close_shape():
