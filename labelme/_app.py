@@ -175,6 +175,7 @@ class _Actions(NamedTuple):
     show_all: QtGui.QAction
     toggle_all: QtGui.QAction
     open_dir: QtGui.QAction
+    reload_dir: QtGui.QAction
     zoom_widget_action: QtWidgets.QWidgetAction
     draw: list[tuple[str, QtGui.QAction]]
     zoom: tuple[ZoomWidget | QtGui.QAction, ...]
@@ -422,6 +423,13 @@ class MainWindow(QtWidgets.QMainWindow):
             icon="phosphor/folder-open.svg",
             tip=self.tr("Open Dir"),
         )
+        reload_dir = action(
+            text=self.tr("Reload Directory"),
+            slot=self.reload_directory,
+            shortcut=shortcuts["reload_dir"],
+            tip=self.tr("Rescan the current directory and reload the current image"),
+            enabled=False,
+        )
         close = action(
             text=self.tr("&Close"),
             slot=self.close_file,
@@ -434,7 +442,7 @@ class MainWindow(QtWidgets.QMainWindow):
             slot=self.delete_file,
             shortcut=shortcuts["delete_file"],
             icon="phosphor/file-x.svg",
-            tip=self.tr("Delete current label file"),
+            tip=self.tr("Delete selected label files"),
             enabled=False,
         )
         keep_prev_action = action(
@@ -901,6 +909,7 @@ class MainWindow(QtWidgets.QMainWindow):
             show_all=show_all,
             toggle_all=toggle_all,
             open_dir=open_dir,
+            reload_dir=reload_dir,
             zoom_widget_action=zoom_widget_action,
             draw=draw,
             zoom=zoom,
@@ -962,6 +971,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 self._actions.open_next_img,
                 self._actions.open_prev_img,
                 self._actions.open_dir,
+                self._actions.reload_dir,
                 self._actions.save,
                 self._actions.save_as,
                 self._actions.save_auto,
@@ -1037,6 +1047,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 actions=[
                     self._actions.open,
                     self._actions.open_dir,
+                    self._actions.reload_dir,
                     self._actions.open_prev_img,
                     self._actions.open_next_img,
                     self._actions.save,
@@ -1316,7 +1327,13 @@ class MainWindow(QtWidgets.QMainWindow):
         file_search.setPlaceholderText(self.tr("Search Filename"))
         file_search.textChanged.connect(self._on_file_search_changed)
         file_list = QtWidgets.QListWidget()
+        file_list.setSelectionMode(
+            QtWidgets.QAbstractItemView.SelectionMode.ExtendedSelection
+        )
+        self._file_list_widget = file_list
+        file_list.installEventFilter(self)
         file_list.currentItemChanged.connect(self._load_selected_image)
+        file_list.itemSelectionChanged.connect(self._update_delete_file_action)
         file_list_layout = QtWidgets.QVBoxLayout()
         file_list_layout.setContentsMargins(0, 0, 0, 0)
         file_list_layout.setSpacing(0)
@@ -1428,7 +1445,8 @@ class MainWindow(QtWidgets.QMainWindow):
     def mark_dirty(self) -> None:
         self._actions.undo.setEnabled(self._canvas_widgets.canvas.can_restore_shape)
 
-        if self._actions.save_auto.isChecked():
+        tracked_label_was_deleted = self._tracked_label_file_was_deleted()
+        if self._actions.save_auto.isChecked() and not tracked_label_was_deleted:
             assert self._image_path is not None
             label_path = _resolve_label_path(
                 image_or_label_path=self._image_path,
@@ -1445,6 +1463,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self._actions.save.setEnabled(True)
         self.setWindowTitle(self._get_window_title(dirty=True))
 
+    def _tracked_label_file_was_deleted(self) -> bool:
+        return self._label_file_path is not None and not Path(
+            self._label_file_path
+        ).exists()
+
     def mark_clean(self) -> None:
         canvas = self._canvas_widgets.canvas
         self._actions.undo.setEnabled(
@@ -1460,7 +1483,22 @@ class MainWindow(QtWidgets.QMainWindow):
         # draw action is available. Narrowing them again is _switch_canvas_mode.
         for _, action in self._actions.draw:
             action.setEnabled(True)
-        self._actions.delete_file.setEnabled(self.has_label_file())
+        self._update_delete_file_action()
+
+    def _update_delete_file_action(self) -> None:
+        selected_items = self._docks.file_list.selectedItems()
+        if selected_items:
+            has_label = any(
+                Path(
+                    _resolve_label_path(
+                        image_or_label_path=item.text(), output_dir=self._output_dir
+                    )
+                ).exists()
+                for item in selected_items
+            )
+        else:
+            has_label = self.has_label_file()
+        self._actions.delete_file.setEnabled(has_label)
 
     def update_action_states(self, *, value: bool = True) -> None:
         for action in (*self._actions.zoom, *self._actions.on_load_active):
@@ -1849,6 +1887,25 @@ class MainWindow(QtWidgets.QMainWindow):
             image_or_label_path=current_item.text()
         ):
             self._restore_file_list_state(item=previous_item)
+
+    def eventFilter(
+        self, watched: QtCore.QObject, event: QtCore.QEvent, /
+    ) -> bool:
+        if (
+            watched is getattr(self, "_file_list_widget", None)
+            and isinstance(event, QtGui.QKeyEvent)
+            and event.key() == Qt.Key.Key_Delete
+            and event.modifiers() == Qt.KeyboardModifier.NoModifier
+        ):
+            if event.type() == QtCore.QEvent.Type.ShortcutOverride:
+                event.accept()
+                return True
+            if event.type() != QtCore.QEvent.Type.KeyPress:
+                return super().eventFilter(watched, event)
+            if self._actions.delete_file.isEnabled():
+                self.delete_file()
+            return True
+        return super().eventFilter(watched, event)
 
     # React to canvas signals.
     def _on_shape_selection_changed(self, selected_shapes: list[Shape], /) -> None:
@@ -2387,9 +2444,15 @@ class MainWindow(QtWidgets.QMainWindow):
 
         prev_shapes: list[Shape] = (
             self._canvas_widgets.canvas.shapes
-            if self._config["keep_prev"]
-            or QtWidgets.QApplication.keyboardModifiers()
-            == (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier)
+            if not self._tracked_label_file_was_deleted()
+            and (
+                self._config["keep_prev"]
+                or QtWidgets.QApplication.keyboardModifiers()
+                == (
+                    Qt.KeyboardModifier.ControlModifier
+                    | Qt.KeyboardModifier.ShiftModifier
+                )
+            )
             else []
         )
         if not QtCore.QFile.exists(image_or_label_path):
@@ -2758,22 +2821,43 @@ class MainWindow(QtWidgets.QMainWindow):
         return msg_box.clickedButton() is delete_button
 
     def delete_file(self) -> None:
+        selected_items = self._docks.file_list.selectedItems()
+        targets: dict[Path, QtWidgets.QListWidgetItem | None] = {}
+        for item in selected_items:
+            path = Path(
+                _resolve_label_path(
+                    image_or_label_path=item.text(), output_dir=self._output_dir
+                )
+            )
+            if path.exists():
+                targets[path] = item
+        if not targets and self.has_label_file():
+            targets[Path(self.current_label_file_path())] = None
+        if not targets:
+            return
+
+        count = len(targets)
         msg = self.tr(
-            "Permanently delete this label file? This action cannot be undone."
+            "Permanently delete {count} label file(s)? "
+            "This action cannot be undone."
+        ).format(count=count)
+        if not self._confirm_deletion(message=msg, default_delete=True):
+            return
+
+        current_label_path = (
+            Path(self.current_label_file_path())
+            if self._image_path is not None
+            else None
         )
-        if not self._confirm_deletion(message=msg):
+        for annotation_path, item in targets.items():
+            annotation_path.unlink()
+            logger.info(f"Label file is removed: {annotation_path}")
+            if item is not None:
+                item.setCheckState(Qt.CheckState.Unchecked)
+
+        if current_label_path not in targets:
+            self._update_delete_file_action()
             return
-
-        annotation_path = Path(self.current_label_file_path())
-        if not annotation_path.exists():
-            return
-
-        annotation_path.unlink()
-        logger.info(f"Label file is removed: {annotation_path}")
-
-        item = self._docks.file_list.currentItem()
-        if item:
-            item.setCheckState(Qt.CheckState.Unchecked)
 
         # Only the label file was deleted, not the image: clear the annotations
         # but keep the image on the canvas.
@@ -2784,6 +2868,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._canvas_widgets.canvas.shape_backups.clear()
         self._canvas_widgets.canvas.load_shapes(shapes=[], replace=True)
         self._actions.undo.setEnabled(self._canvas_widgets.canvas.can_restore_shape)
+        self._label_file_path = None
+        self._last_failed_auto_save_path = None
         self.mark_clean()
         self._reset_label_file_actions()
 
@@ -3165,6 +3251,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 return
             self._loaded_image_paths = []
             self._refresh_file_list()
+            self._actions.reload_dir.setEnabled(False)
             self._docks.file_dock.setEnabled(False)
             self._docks.file_dock.setToolTip(
                 self.tr("File list is disabled when a label file is opened")
@@ -3212,6 +3299,20 @@ class MainWindow(QtWidgets.QMainWindow):
         if dir_path:
             self._load_from_file_or_dir(file_or_dir=dir_path)
 
+    def reload_directory(self) -> None:
+        root_dir = self._prev_opened_dir
+        if root_dir is None or not Path(root_dir).is_dir() or not self._can_continue():
+            return
+
+        current_image = self._file_list_image_path
+        self._loaded_image_paths = _scan_image_files(root_dir=root_dir)
+        self._refresh_file_list()
+        if current_image in self._loaded_image_paths:
+            self._load_file(image_or_label_path=current_image)
+            return
+        if self._docks.file_list.count():
+            self._docks.file_list.setCurrentRow(0)
+
     @property
     def image_list(self) -> list[str]:
         lst = []
@@ -3257,6 +3358,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._docks.file_dock.setEnabled(True)
         self._docks.file_dock.setToolTip("")
+        self._actions.reload_dir.setEnabled(True)
 
         self._prev_opened_dir = root_dir
         self._loaded_image_paths = _scan_image_files(root_dir=root_dir)

@@ -96,6 +96,7 @@ shortcuts:
   close: Ctrl+W
   open: Ctrl+O
   open_dir: Ctrl+U
+  reload_dir: F5
   quit: Ctrl+Q
   save: Ctrl+S
   save_as: Ctrl+Shift+S

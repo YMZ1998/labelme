@@ -1,0 +1,1 @@
+The file list now supports Ctrl multi-selection and Delete-key removal of label files, with Delete selected by default in the confirmation dialog. The current directory can also be rescanned and reloaded with F5.

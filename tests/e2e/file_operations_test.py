@@ -4,6 +4,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+from PySide6 import QtCore
 from PySide6.QtCore import Qt
 from pytestqt.qtbot import QtBot
 
@@ -68,12 +69,75 @@ def test_delete_label_file(
     qtbot.wait(50)
 
     assert not label_file.exists()
+    assert win._label_file_path is None
 
     item = win._docks.file_list.currentItem()
     assert item is not None
     assert item.checkState() == Qt.CheckState.Unchecked
 
     close_or_pause(qtbot=qtbot, widget=win, pause=pause)
+
+
+@pytest.mark.gui
+def test_ctrl_selected_label_files_are_deleted_together(
+    *,
+    main_win: MainWinFactory,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    win = main_win()
+    image_paths = [tmp_path / "first.jpg", tmp_path / "second.jpg"]
+    label_paths = [path.with_suffix(".json") for path in image_paths]
+    for label_path in label_paths:
+        label_path.write_text("{}")
+
+    win._loaded_image_paths = [str(path) for path in image_paths]
+    win._refresh_file_list()
+    with QtCore.QSignalBlocker(win._docks.file_list):
+        for row in range(win._docks.file_list.count()):
+            win._docks.file_list.item(row).setSelected(True)
+    win._update_delete_file_action()
+
+    confirmations: list[tuple[str, bool]] = []
+
+    def confirm(*, message: str, default_delete: bool = False) -> bool:
+        confirmations.append((message, default_delete))
+        return True
+
+    monkeypatch.setattr(win, "_confirm_deletion", confirm)
+    win.delete_file()
+
+    remaining = [path for path in label_paths if path.exists()]
+    win.close()
+    assert remaining == []
+    assert confirmations and "2" in confirmations[0][0]
+    assert confirmations[0][1] is True
+
+
+@pytest.mark.gui
+def test_delete_key_in_file_list_deletes_label_file(
+    *,
+    qtbot: QtBot,
+    main_win: MainWinFactory,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    win = main_win()
+    image_path = tmp_path / "image.jpg"
+    label_path = image_path.with_suffix(".json")
+    label_path.write_text("{}")
+    win._loaded_image_paths = [str(image_path)]
+    win._refresh_file_list()
+    with QtCore.QSignalBlocker(win._docks.file_list):
+        win._docks.file_list.setCurrentRow(0)
+    win._update_delete_file_action()
+    monkeypatch.setattr(win, "_confirm_deletion", lambda **_kwargs: True)
+
+    qtbot.keyClick(win._docks.file_list, Qt.Key.Key_Delete)
+
+    exists_after_delete = label_path.exists()
+    win.close()
+    assert not exists_after_delete
 
 
 @pytest.mark.gui

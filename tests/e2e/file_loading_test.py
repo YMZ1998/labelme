@@ -22,6 +22,44 @@ from .conftest import show_window_and_wait_for_imagedata
 
 
 @pytest.mark.gui
+def test_reload_directory_rescans_and_keeps_current_image(
+    *,
+    main_win: MainWinFactory,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    win = main_win()
+    current = str(tmp_path / "current.jpg")
+    added = str(tmp_path / "added.jpg")
+    win._prev_opened_dir = str(tmp_path)
+    win._file_list_image_path = current
+    win._loaded_image_paths = [current]
+    win._refresh_file_list()
+    loaded: list[str] = []
+
+    monkeypatch.setattr(
+        "labelme._app._scan_image_files", lambda *, root_dir: [current, added]  # noqa: ARG005
+    )
+    monkeypatch.setattr(
+        win,
+        "_load_file",
+        lambda *, image_or_label_path: loaded.append(image_or_label_path) or True,
+    )
+
+    try:
+        win.reload_directory()
+        count = win._docks.file_list.count()
+        current_item = win._docks.file_list.currentItem()
+        selected_path = current_item.text() if current_item is not None else None
+    finally:
+        win._is_changed = False
+        win.close()
+    assert count == 2
+    assert selected_path == current
+    assert loaded == [current]
+
+
+@pytest.mark.gui
 def test_MainWindow_open_img(
     *,
     main_win: MainWinFactory,

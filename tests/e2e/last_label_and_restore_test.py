@@ -198,6 +198,36 @@ def test_undo_not_enabled_after_opening_image_with_shapes_carried_forward(
 
 
 @pytest.mark.gui
+def test_deleted_label_is_not_carried_to_next_image(
+    *,
+    qtbot: QtBot,
+    main_win: MainWinFactory,
+    data_path: Path,
+    tmp_path: Path,
+    pause: bool,
+) -> None:
+    win = main_win(
+        file_or_dir=data_path / "raw",
+        config_overrides={"keep_prev": True, "auto_save": True},
+        output_dir=tmp_path,
+    )
+    show_window_and_wait_for_imagedata(qtbot=qtbot, win=win)
+    _draw_and_commit_polygon(qtbot=qtbot, win=win, label="deleted")
+
+    label_file = Path(win.current_label_file_path())
+    assert label_file.exists()
+    label_file.unlink()
+    previous_image = win._image_path
+    win._actions.open_next_img.trigger()
+    qtbot.waitUntil(lambda: win._image_path != previous_image)
+
+    assert win._canvas_widgets.canvas.shapes == []
+    assert not Path(win.current_label_file_path()).exists()
+
+    close_or_pause(qtbot=qtbot, widget=win, pause=pause)
+
+
+@pytest.mark.gui
 @pytest.mark.parametrize("image_dir", ["raw", "annotated"])
 @pytest.mark.usefixtures("discard_unsaved_changes")
 def test_navigation_disables_undo_for_clean_image_history(

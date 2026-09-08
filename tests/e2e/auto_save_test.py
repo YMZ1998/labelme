@@ -94,6 +94,30 @@ def test_auto_save_on_shape_move(
 
 
 @pytest.mark.gui
+def test_auto_save_does_not_recreate_externally_deleted_label_file(
+    *,
+    qtbot: QtBot,
+    _auto_save_win: MainWindow,
+    pause: bool,
+) -> None:
+    label_file = Path(_auto_save_win.current_label_file_path())
+    assert label_file.exists()
+    label_file.unlink()
+
+    canvas = _auto_save_win._canvas_widgets.canvas
+    select_shape(qtbot=qtbot, canvas=canvas, shape_index=0)
+    qtbot.keyClick(canvas, Qt.Key.Key_Right)
+    qtbot.wait(50)
+
+    assert not label_file.exists()
+    assert _auto_save_win._is_changed
+    assert _auto_save_win._actions.save.isEnabled()
+
+    _auto_save_win.mark_clean()
+    close_or_pause(qtbot=qtbot, widget=_auto_save_win, pause=pause)
+
+
+@pytest.mark.gui
 def test_enabling_auto_save_on_dirty_annotation_clears_dirty_state(
     *,
     monkeypatch: pytest.MonkeyPatch,
