@@ -14,7 +14,7 @@ from ._ring_config import get_ring_config_file
 class RoiToolConfig:
     polygon_label: str = "1"
     strip_label: str = "2"
-    ring_label: str = "5"
+    ring_label: str = "3"
     polygon_shortcut: str = "Ctrl+E"
     strip_shortcut: str = "Ctrl+Q"
     ring_shortcut: str = "Ctrl+W"
