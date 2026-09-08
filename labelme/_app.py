@@ -44,10 +44,13 @@ from ._label_file import read_image_file
 from ._label_file import read_label_file
 from ._label_file import write_label_file
 from ._label_flags import compile_label_flags
+from ._ring_config import load_ring_point_spacing
+from ._ring_segmentation import trace_default_imaging_ring
 from ._shape import Shape
 from ._shape import ShapeType
 from ._shape_clipboard import ShapeClipboard
 from ._shape_color import resolve_shape_color
+from ._strip import load_strip_half_width
 from ._widgets import AiAssistedAnnotationWidget
 from ._widgets import AiTextToAnnotationWidget
 from ._widgets import BrightnessContrastDialog
@@ -144,9 +147,11 @@ class _Actions(NamedTuple):
     create_oriented_rectangle_mode: QtGui.QAction
     create_circle_mode: QtGui.QAction
     create_annular_sector_mode: QtGui.QAction
+    create_annular_sector_settings_mode: QtGui.QAction
     create_line_mode: QtGui.QAction
     create_point_mode: QtGui.QAction
     create_line_strip_mode: QtGui.QAction
+    create_strip_mode: QtGui.QAction
     create_ai_points_to_shape_mode: QtGui.QAction
     create_ai_box_to_shape_mode: QtGui.QAction
     open_next_img: QtGui.QAction
@@ -561,6 +566,14 @@ class MainWindow(QtWidgets.QMainWindow):
             ),
             enabled=False,
         )
+        create_annular_sector_settings_mode = action(
+            text=self.tr("Ring Settings"),
+            slot=self._open_ring_segmentation_settings,
+            shortcut=None,
+            icon="phosphor/sliders-horizontal.svg",
+            tip=self.tr("Adjust ring extraction parameters before cutting."),
+            enabled=False,
+        )
         create_line_mode = action(
             text=self.tr("Line"),
             slot=lambda: self._switch_canvas_mode(edit=False, create_mode="line"),
@@ -584,6 +597,16 @@ class MainWindow(QtWidgets.QMainWindow):
             icon="phosphor/line-segments.svg",
             tip=self.tr(
                 "Click to place linestrip points; Ctrl+click places the last one."
+            ),
+            enabled=False,
+        )
+        create_strip_mode = action(
+            text=self.tr("Strip"),
+            slot=self._start_strip,
+            shortcut=None,
+            icon="phosphor/line-segments.svg",
+            tip=self.tr(
+                "Click along a thin region's centerline to create a strip polygon."
             ),
             enabled=False,
         )
@@ -746,9 +769,11 @@ class MainWindow(QtWidgets.QMainWindow):
             ("oriented_rectangle", create_oriented_rectangle_mode),
             ("circle", create_circle_mode),
             ("annular_sector", create_annular_sector_mode),
+            ("annular_sector_settings", create_annular_sector_settings_mode),
             ("point", create_point_mode),
             ("line", create_line_mode),
             ("linestrip", create_line_strip_mode),
+            ("strip", create_strip_mode),
             ("ai_points_to_shape", create_ai_points_to_shape_mode),
             ("ai_box_to_shape", create_ai_box_to_shape_mode),
         ]
@@ -767,9 +792,11 @@ class MainWindow(QtWidgets.QMainWindow):
             create_oriented_rectangle_mode,
             create_circle_mode,
             create_annular_sector_mode,
+            create_annular_sector_settings_mode,
             create_line_mode,
             create_point_mode,
             create_line_strip_mode,
+            create_strip_mode,
             create_ai_points_to_shape_mode,
             create_ai_box_to_shape_mode,
             brightness_contrast,
@@ -831,9 +858,11 @@ class MainWindow(QtWidgets.QMainWindow):
             create_oriented_rectangle_mode=create_oriented_rectangle_mode,
             create_circle_mode=create_circle_mode,
             create_annular_sector_mode=create_annular_sector_mode,
+            create_annular_sector_settings_mode=create_annular_sector_settings_mode,
             create_line_mode=create_line_mode,
             create_point_mode=create_point_mode,
             create_line_strip_mode=create_line_strip_mode,
+            create_strip_mode=create_strip_mode,
             create_ai_points_to_shape_mode=create_ai_points_to_shape_mode,
             create_ai_box_to_shape_mode=create_ai_box_to_shape_mode,
             open_next_img=open_next_img,
@@ -1159,6 +1188,7 @@ class MainWindow(QtWidgets.QMainWindow):
             ],
         )
         canvas.set_point_size(point_size=self._config["shape"]["point_size"])
+        canvas.set_fill_opacity(percent=self._config["shape"]["fill_opacity"])
         canvas.set_show_labels(value=self._config["shape"]["show_labels"])
         canvas.set_ai_existing_shape_suppression(
             enabled=self._config["ai"]["suppress_existing_shape_matches"]
@@ -1179,6 +1209,7 @@ class MainWindow(QtWidgets.QMainWindow):
             )
         )
         canvas.zoom_request.connect(self._zoom_requested)
+        canvas.image_navigation_request.connect(self._navigate_image)
         canvas.mouse_moved.connect(self._update_status_stats)
         canvas.status_updated.connect(
             lambda text: self._status_bar.message.setText(text)
@@ -1574,16 +1605,46 @@ class MainWindow(QtWidgets.QMainWindow):
     def _start_ring_segmentation(self) -> None:
         if self._image.isNull():
             return
+        try:
+            mask = trace_default_imaging_ring(
+                _utils.img_qt_to_rgb_arr(self._image)
+            )
+        except ValueError:
+            self.show_status_message(
+                self.tr("Could not extract the ring; use Ring Settings to adjust it."),
+                delay=3000,
+            )
+            return
+        self._activate_ring_cutting(
+            mask=mask, point_spacing=load_ring_point_spacing()
+        )
+
+    def _open_ring_segmentation_settings(self) -> None:
+        if self._image.isNull():
+            return
         dialog = RingContourDialog(image=self._image, parent=self)
         if (
             dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted
             or dialog.mask is None
         ):
             return
+        self._activate_ring_cutting(
+            mask=dialog.mask, point_spacing=dialog.point_spacing
+        )
+
+    def _activate_ring_cutting(
+        self, *, mask: np.ndarray, point_spacing: float
+    ) -> None:
         self._canvas_widgets.canvas.set_ring_mask(
-            dialog.mask, point_spacing=dialog.point_spacing
+            mask, point_spacing=point_spacing
         )
         self._switch_canvas_mode(edit=False, create_mode="annular_sector")
+
+    def _start_strip(self) -> None:
+        self._canvas_widgets.canvas.set_strip_half_width(
+            value=load_strip_half_width()
+        )
+        self._switch_canvas_mode(edit=False, create_mode="strip")
 
     def _switch_canvas_mode(self, *, edit: bool, create_mode: str | None) -> None:
         self._canvas_widgets.canvas.set_editing(value=edit, create_mode=create_mode)
@@ -1908,6 +1969,9 @@ class MainWindow(QtWidgets.QMainWindow):
             assert shape is not None
             selected_shapes.append(shape)
         if selected_shapes:
+            # Selecting an existing ROI from the shape list is an editing action.
+            # Switch modes first so its vertices can be dragged immediately.
+            self._switch_canvas_mode(edit=True, create_mode=None)
             self._canvas_widgets.canvas.select_shapes(shapes=selected_shapes)
         else:
             if self._canvas_widgets.canvas.deselect_shape():
@@ -2483,6 +2547,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self._docks.file_list.setCurrentRow(row_prev)
         self._docks.file_list.repaint()
 
+    def _navigate_image(self, offset: int) -> None:
+        if offset < 0:
+            self._open_prev_image()
+        elif offset > 0:
+            self._open_next_image()
+
     def _open_next_image(self) -> None:
         row_next: int = self._docks.file_list.currentRow() + 1
         if row_next >= self._docks.file_list.count():
@@ -2617,7 +2687,7 @@ class MainWindow(QtWidgets.QMainWindow):
             image_or_label_path=self._image_path, output_dir=self._output_dir
         )
 
-    def _confirm_deletion(self, *, message: str) -> bool:
+    def _confirm_deletion(self, *, message: str, default_delete: bool = False) -> bool:
         msg_box = QtWidgets.QMessageBox(self)
         msg_box.setIcon(QtWidgets.QMessageBox.Icon.Warning)
         msg_box.setWindowTitle(self.tr("Attention"))
@@ -2628,7 +2698,7 @@ class MainWindow(QtWidgets.QMainWindow):
         cancel_button = msg_box.addButton(
             self.tr("Cancel"), QtWidgets.QMessageBox.ButtonRole.RejectRole
         )
-        msg_box.setDefaultButton(cancel_button)
+        msg_box.setDefaultButton(delete_button if default_delete else cancel_button)
         msg_box.exec()
         return msg_box.clickedButton() is delete_button
 
@@ -2794,6 +2864,10 @@ class MainWindow(QtWidgets.QMainWindow):
             canvas = self._canvas_widgets.canvas
             canvas.set_show_labels(value=self._config["shape"]["show_labels"])
             canvas.update()
+        elif key_path == ("shape", "fill_opacity"):
+            self._canvas_widgets.canvas.set_fill_opacity(
+                percent=self._config["shape"]["fill_opacity"]
+            )
         elif key_path == ("mask_polygonization", "detail"):
             detail = self._config["mask_polygonization"]["detail"]
             self._ai_annotation.set_polygon_detail(detail)
@@ -3006,7 +3080,7 @@ class MainWindow(QtWidgets.QMainWindow):
         msg = self.tr("Delete {} shapes? You can restore them with Undo.").format(
             len(self._canvas_widgets.canvas.selected_shapes)
         )
-        if not self._confirm_deletion(message=msg):
+        if not self._confirm_deletion(message=msg, default_delete=True):
             return
         self.remove_labels(shapes=self._canvas_widgets.canvas.delete_selected())
         self.mark_dirty()

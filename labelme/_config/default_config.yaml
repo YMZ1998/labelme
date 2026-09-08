@@ -28,6 +28,8 @@ shape:
   # drawing
   line_color: [0, 255, 0, 128]
   fill_color: [0, 0, 0, 64]
+  # fill opacity in percent for drawing, hover, and selection
+  fill_opacity: 15
   vertex_fill_color: [0, 255, 0, 255]
   # selecting / hovering
   select_line_color: [255, 255, 255, 255]

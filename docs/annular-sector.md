@@ -2,7 +2,11 @@
 
 
 
-Choose **Ring**. The tool fits the circular imaging field against the dark
+Choose **Ring** to use automatically estimated parameters without opening a
+
+dialog. Choose **Ring Settings** to preview and adjust the extraction. The tool
+
+fits the circular imaging field against the dark
 
 background, then traces the inner dark-to-bright edge in polar coordinates.
 
@@ -12,7 +16,9 @@ The outer boundary is the imaging field, not an internal tissue boundary.
 
 
 
-Inspect the green contours. Adjust **Inner-edge position** if the wrong radial
+In **Ring Settings**, inspect the green contours. Adjust **Inner-edge position**
+
+if the wrong radial
 
 edge was selected and **Contour smoothness** to control local variation. Confirm,
 

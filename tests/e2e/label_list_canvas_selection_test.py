@@ -98,6 +98,28 @@ def test_click_label_list_entry_selects_canvas_shape(
 
 
 @pytest.mark.gui
+def test_click_label_list_entry_enters_edit_mode(
+    *,
+    qtbot: QtBot,
+    annotated_win: MainWindow,
+    pause: bool,
+) -> None:
+    win = annotated_win
+    canvas = win._canvas_widgets.canvas
+    label_list = win._docks.label_list
+
+    win._switch_canvas_mode(edit=False, create_mode="polygon")
+    assert win._actions.edit_mode.isEnabled()
+
+    label_list.select_item(item=label_list[0])
+
+    qtbot.waitUntil(lambda: not win._actions.edit_mode.isEnabled())
+    assert canvas.selected_shapes == [label_list[0].shape()]
+
+    close_or_pause(qtbot=qtbot, widget=win, pause=pause)
+
+
+@pytest.mark.gui
 def test_click_canvas_shape_selects_label_list_entry(
     *,
     qtbot: QtBot,

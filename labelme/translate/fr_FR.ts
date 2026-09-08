@@ -137,6 +137,14 @@
         <translation>Cliquer sur le point suivant ou Ctrl/Cmd+Cliquer pour terminer la polyligne</translation>
     </message>
     <message>
+        <source>Strip: click the first centerline point</source>
+        <translation>Strip: click the first centerline point</translation>
+    </message>
+    <message>
+        <source>Strip: click along the centerline; press Enter or double-click to finish</source>
+        <translation>Strip: click along the centerline; press Enter or double-click to finish</translation>
+    </message>
+    <message>
         <source>Click center point for circle</source>
         <translation>Cliquer sur le point central du cercle</translation>
     </message>
@@ -511,8 +519,24 @@ les formes</translation>
         <translation>Fit the outer imaging circle and trace the inner edge, then cut with four points.</translation>
     </message>
     <message>
+        <source>Ring Settings</source>
+        <translation>Ring Settings</translation>
+    </message>
+    <message>
+        <source>Adjust ring extraction parameters before cutting.</source>
+        <translation>Adjust ring extraction parameters before cutting.</translation>
+    </message>
+    <message>
         <source>Click to place linestrip points; Ctrl+click places the last one.</source>
         <translation>Cliquez pour placer les points de la polyligne ; Ctrl+clic place le dernier.</translation>
+    </message>
+    <message>
+        <source>Strip</source>
+        <translation>Strip</translation>
+    </message>
+    <message>
+        <source>Click along a thin region&apos;s centerline to create a strip polygon.</source>
+        <translation>Click along a thin region&apos;s centerline to create a strip polygon.</translation>
     </message>
     <message>
         <source>Fit to &amp;Window</source>
@@ -589,6 +613,10 @@ Switch the AI Text-to-Annotation model to &apos;SAM3 (smart)&apos;, or set the o
         <translation>%s ne détecte que les cadres englobants et ne peut pas créer d&apos;annotations &apos;%s&apos;.
 
 Changez le modèle AI Text-to-Annotation pour &apos;SAM3 (smart)&apos;, ou définissez le format de sortie sur &apos;Rectangle&apos;.</translation>
+    </message>
+    <message>
+        <source>Could not extract the ring; use Ring Settings to adjust it.</source>
+        <translation>Could not extract the ring; use Ring Settings to adjust it.</translation>
     </message>
     <message>
         <source>Invalid label</source>
@@ -993,6 +1021,14 @@ Veuillez sélectionner un autre modèle ou utiliser le mode AI-Box.</translation
     <message>
         <source>Fill polygon while drawing</source>
         <translation>Remplir le polygone pendant le dessin</translation>
+    </message>
+    <message>
+        <source>Shape fill opacity</source>
+        <translation>Shape fill opacity</translation>
+    </message>
+    <message>
+        <source>Controls the fill opacity while drawing, hovering, and editing.</source>
+        <translation>Controls the fill opacity while drawing, hovering, and editing.</translation>
     </message>
     <message>
         <source>Let shape points extend beyond the image, e.g. for partially visible objects.</source>

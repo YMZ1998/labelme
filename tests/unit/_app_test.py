@@ -72,6 +72,37 @@ def test_is_valid_label(
     )
 
 
+def test_default_ring_action_skips_settings_dialog(
+    *, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    image = QtGui.QImage(20, 20, QtGui.QImage.Format.Format_RGB888)
+    image.fill(0)
+    expected_mask = np.ones((20, 20), dtype=np.bool_)
+    activated: list[tuple[np.ndarray, float]] = []
+
+    class Harness:
+        _image = image
+
+        def _activate_ring_cutting(
+            self, *, mask: np.ndarray, point_spacing: float
+        ) -> None:
+            activated.append((mask, point_spacing))
+
+    monkeypatch.setattr(
+        _app, "trace_default_imaging_ring", lambda _image: expected_mask
+    )
+    monkeypatch.setattr(_app, "load_ring_point_spacing", lambda: 36)
+    monkeypatch.setattr(
+        _app,
+        "RingContourDialog",
+        lambda **_kwargs: pytest.fail("default Ring action opened settings"),
+    )
+
+    _app.MainWindow._start_ring_segmentation(Harness())  # ty: ignore[invalid-argument-type]
+
+    assert activated == [(expected_mask, 36)]
+
+
 @pytest.mark.parametrize(
     "image_path, file_index, file_count, dirty, expected",
     [

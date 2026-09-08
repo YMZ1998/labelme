@@ -36,6 +36,7 @@ from .._shape import POLYLINE_SHAPE_TYPES
 from .._shape import RECTANGLE_POINT_COUNT
 from .._shape import Shape
 from .._shape import ShapeType
+from .._strip import centerline_to_strip
 from . import _canvas_interaction
 from ._canvas_interaction import CursorRole
 from ._canvas_interaction import HitKind
@@ -48,6 +49,7 @@ from ._shape_render import render_shape
 from .download import download_ai_model
 
 _DEFAULT_SHAPE_RGB: Final[tuple[int, int, int]] = (0, 255, 0)
+_OPACITY_PERCENT_MAX: Final[int] = 100
 _DEFAULT_PALETTE: Final[Palette] = Palette.from_rgb(_DEFAULT_SHAPE_RGB)
 
 
@@ -119,6 +121,7 @@ _CreateMode = Literal[
     "line",
     "point",
     "linestrip",
+    "strip",
     "ai_points_to_shape",
     "ai_box_to_shape",
 ]
@@ -138,6 +141,7 @@ _CREATE_MODE_TO_SHAPE_TYPE: Final[dict[_CreateMode, ShapeType]] = {
     "line": "line",
     "point": "point",
     "linestrip": "linestrip",
+    "strip": "linestrip",
     "ai_points_to_shape": "points",
     "ai_box_to_shape": "rectangle",
 }
@@ -168,6 +172,7 @@ class Canvas(QtWidgets.QWidget):
 
     zoom_request = QtCore.Signal(int, QPointF)
     scroll_request = QtCore.Signal(int, Qt.Orientation)
+    image_navigation_request = QtCore.Signal(int)
     pan_request = QtCore.Signal(QPoint)
     new_shape = QtCore.Signal()
     inference_produced_no_shapes = QtCore.Signal()
@@ -191,8 +196,11 @@ class Canvas(QtWidgets.QWidget):
     _ring_mask: npt.NDArray[np.bool_] | None = None
     _ring_outlines: tuple[Shape, ...] = ()
     _ring_point_spacing: float = 24.0
+    _strip_half_width: float = 8.0
+    _strip_centerline_points: tuple[QPointF, ...] = ()
 
     _fill_drawing = False
+    _fill_opacity: int
 
     _show_labels = False
 
@@ -272,6 +280,7 @@ class Canvas(QtWidgets.QWidget):
         self._point_size: int = 8
         self._point_type: Literal["square", "round"] = "round"
         self._draft_palette = _DEFAULT_PALETTE
+        self._fill_opacity = 38
         self._palette_cache = {}
         self.context_menus = _canvas_interaction.ContextMenuPair(
             without_selection=QtWidgets.QMenu(),
@@ -283,6 +292,23 @@ class Canvas(QtWidgets.QWidget):
 
     def set_fill_drawing(self, *, value: bool) -> None:
         self._fill_drawing = value
+
+    def set_fill_opacity(self, *, percent: int) -> None:
+        if not 0 <= percent <= _OPACITY_PERCENT_MAX:
+            raise ValueError(f"Fill opacity must be between 0 and 100, got {percent}")
+        self._fill_opacity = round(percent * 255 / _OPACITY_PERCENT_MAX)
+        self.update()
+
+    def _with_fill_opacity(self, palette: Palette, /) -> Palette:
+        fill = QtGui.QColor(palette.fill)
+        fill.setAlpha(self._fill_opacity)
+        select_fill = QtGui.QColor(palette.select_fill)
+        select_fill.setAlpha(self._fill_opacity)
+        return dataclasses.replace(
+            palette,
+            fill=fill,
+            select_fill=select_fill,
+        )
 
     def set_show_labels(self, *, value: bool) -> None:
         self._show_labels = value
@@ -362,7 +388,7 @@ class Canvas(QtWidgets.QWidget):
         selected = shape in self.selected_shapes
         return ShapeRenderContext(
             scale=self.scale,
-            palette=self._resolve_palette(shape.label),
+            palette=self._with_fill_opacity(self._resolve_palette(shape.label)),
             point_size=self._point_size,
             point_type=self._point_type,
             selected=selected,
@@ -382,7 +408,7 @@ class Canvas(QtWidgets.QWidget):
     ) -> ShapeRenderContext:
         return ShapeRenderContext(
             scale=self.scale,
-            palette=self._draft_palette,
+            palette=self._with_fill_opacity(self._draft_palette),
             point_size=self._point_size,
             point_type=self._point_type,
             selected=selected,
@@ -687,6 +713,13 @@ class Canvas(QtWidgets.QWidget):
                 return self.tr(
                     "Click next point or finish by Ctrl/Cmd+Click for linestrip"
                 )
+        if self.create_mode == "strip":
+            if is_new:
+                return self.tr("Strip: click the first centerline point")
+            return self.tr(
+                "Strip: click along the centerline; "
+                "press Enter or double-click to finish"
+            )
         if self.create_mode == "circle":
             if is_new:
                 return self.tr("Click center point for circle")
@@ -1167,7 +1200,7 @@ class Canvas(QtWidgets.QWidget):
                 self._update_status(extra_messages=None)
                 self.update()
             return
-        if mode in ("polygon", "linestrip", "ai_points_to_shape"):
+        if mode in ("polygon", "linestrip", "strip", "ai_points_to_shape"):
             self._commit_preview_vertex(current=current, event=event)
         elif mode == "oriented_rectangle":
             if len(current.points) == ORIENTED_RECTANGLE_POINT_COUNT:
@@ -1435,7 +1468,7 @@ class Canvas(QtWidgets.QWidget):
             return False
         if self.create_mode == "ai_points_to_shape":
             return True
-        if self.create_mode == "linestrip":
+        if self.create_mode in ("linestrip", "strip"):
             return len(self._current.points) >= MIN_LINESTRIP_POINT_COUNT
         if self.create_mode == "oriented_rectangle":
             # Points 2 and 3 are seeded as duplicates of points 1 and 0 after
@@ -1839,6 +1872,11 @@ class Canvas(QtWidgets.QWidget):
         )
         self.update()
 
+    def set_strip_half_width(self, *, value: float) -> None:
+        if not np.isfinite(value) or value <= 0:
+            raise ValueError("Strip half-width must be positive and finite")
+        self._strip_half_width = value
+
     def _build_polygon_preview(self, *, current: _DraftShape) -> Shape:
         # The cursor closes the shape, so previewing a fill needs one fewer point.
         MIN_POINTS_FOR_FILL_PREVIEW: Final = 2
@@ -1923,6 +1961,19 @@ class Canvas(QtWidgets.QWidget):
             self._set_ai_existing_shape_highlights(
                 shapes=proposal.matching_existing_shapes
             )
+        elif self.create_mode == "strip":
+            self._strip_centerline_points = self._current.points
+            try:
+                polygon = centerline_to_strip(
+                    [(point.x(), point.y()) for point in self._current.points],
+                    half_width=self._strip_half_width,
+                    image_shape=(self.pixmap.height(), self.pixmap.width()),
+                )
+            except ValueError:
+                self.degenerate_shape_rejected.emit()
+                self._cancel_current_shape()
+                return
+            new_shapes = [Shape(shape_type="polygon", points=polygon, closed=True)]
         else:
             self._current = self._current.close()
             if _is_degenerate_draft(self._current):
@@ -2022,6 +2073,9 @@ class Canvas(QtWidgets.QWidget):
             # but Linux/Windows deliver the delta on y and expect the app to
             # remap it.
             self.scroll_request.emit(delta.y(), Qt.Orientation.Horizontal)
+        elif mods == Qt.KeyboardModifier.NoModifier and delta.y() != 0:
+            # Wheel up opens the previous image; wheel down opens the next.
+            self.image_navigation_request.emit(-1 if delta.y() > 0 else 1)
         else:
             # scroll
             self.scroll_request.emit(delta.x(), Qt.Orientation.Horizontal)
@@ -2043,7 +2097,19 @@ class Canvas(QtWidgets.QWidget):
         self._clear_ai_existing_shape_highlights()
         modifiers = a0.modifiers()
         key = a0.key()
-        if self.mode == _CanvasMode.CREATE:
+        navigation = {
+            Qt.Key.Key_Left: -1,
+            Qt.Key.Key_Up: -1,
+            Qt.Key.Key_Right: 1,
+            Qt.Key.Key_Down: 1,
+        }
+        if (
+            key in navigation
+            and not self.selected_shapes
+            and self._current is None
+        ):
+            self.image_navigation_request.emit(navigation[key])
+        elif self.mode == _CanvasMode.CREATE:
             if key == Qt.Key.Key_Escape and self._current is not None:
                 self._cancel_current_shape()
             elif (
@@ -2113,6 +2179,21 @@ class Canvas(QtWidgets.QWidget):
             self._line = _DraftShape(
                 shape_type="polygon",
                 points=self._ring_control_points[-2:],
+                point_labels=(1, 1),
+            )
+            self.drawing_polygon.emit(True)  # noqa: FBT003 -- Qt signal
+            self.update()
+            return
+        if self.create_mode == "strip":
+            self.shapes.pop()
+            self._current = _DraftShape(
+                shape_type="linestrip",
+                points=self._strip_centerline_points,
+                point_labels=(1,) * len(self._strip_centerline_points),
+            )
+            self._line = _DraftShape(
+                shape_type="linestrip",
+                points=(self._current.points[-1], self._current.points[-1]),
                 point_labels=(1, 1),
             )
             self.drawing_polygon.emit(True)  # noqa: FBT003 -- Qt signal

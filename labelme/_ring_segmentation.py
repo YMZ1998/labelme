@@ -136,6 +136,21 @@ def ring_grayscale(image: npt.NDArray[np.uint8]) -> npt.NDArray[np.float64]:
     return ndimage.gaussian_filter(gray, sigma=1.5)
 
 
+def trace_default_imaging_ring(
+    image: npt.NDArray[np.uint8],
+) -> npt.NDArray[np.bool_]:
+    """Extract a ring with automatically estimated inner and outer boundaries."""
+    gray = ring_grayscale(image)
+    circle = fit_imaging_circle(gray)
+    inner_radius = estimate_inner_radius(gray, circle)
+    return trace_imaging_ring(
+        gray,
+        circle=circle,
+        inner_radius=inner_radius,
+        smoothness=0.5,
+    )
+
+
 def _largest_component(mask: npt.NDArray[np.bool_]) -> npt.NDArray[np.bool_]:
     labels, count = ndimage.label(mask)
     if count == 0:

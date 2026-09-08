@@ -57,6 +57,27 @@ def test_confirm_deletion_defaults_to_cancel(
 
 
 @pytest.mark.gui
+def test_roi_deletion_defaults_to_delete(
+    *,
+    main_win: MainWinFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    win = main_win()
+
+    default_role: list[QtWidgets.QMessageBox.ButtonRole] = []
+
+    def _capture_default(msg_box: QtWidgets.QMessageBox) -> int:
+        default_role.append(msg_box.buttonRole(msg_box.defaultButton()))
+        return 0
+
+    monkeypatch.setattr(QtWidgets.QMessageBox, "exec", _capture_default)
+
+    win._confirm_deletion(message="delete ROI?", default_delete=True)
+
+    assert default_role == [QtWidgets.QMessageBox.ButtonRole.DestructiveRole]
+
+
+@pytest.mark.gui
 def test_confirm_deletion_returns_true_when_delete_clicked(
     *,
     main_win: MainWinFactory,

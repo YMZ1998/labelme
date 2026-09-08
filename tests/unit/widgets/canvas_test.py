@@ -46,6 +46,127 @@ def canvas(*, qtbot: QtBot) -> Canvas:
     return canvas
 
 
+def _wheel_event(
+    *,
+    delta_y: int,
+    modifiers: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier,
+) -> QtGui.QWheelEvent:
+    return QtGui.QWheelEvent(
+        QPointF(20, 20),
+        QPointF(20, 20),
+        QtCore.QPoint(),
+        QtCore.QPoint(0, delta_y),
+        Qt.MouseButton.NoButton,
+        modifiers,
+        Qt.ScrollPhase.NoScrollPhase,
+        False,  # noqa: FBT003 -- QWheelEvent takes inverted positionally
+    )
+
+
+@pytest.mark.gui
+@pytest.mark.parametrize(("delta_y", "expected"), [(120, -1), (-120, 1)])
+def test_plain_wheel_requests_image_navigation(
+    *, canvas: Canvas, delta_y: int, expected: int
+) -> None:
+    requests: list[int] = []
+    scrolls: list[tuple[int, Qt.Orientation]] = []
+    canvas.image_navigation_request.connect(requests.append)
+    canvas.scroll_request.connect(
+        lambda delta, orientation: scrolls.append((delta, orientation))
+    )
+
+    canvas.wheelEvent(_wheel_event(delta_y=delta_y))
+
+    assert requests == [expected]
+    assert scrolls == []
+
+
+@pytest.mark.gui
+def test_control_wheel_still_requests_zoom(*, canvas: Canvas) -> None:
+    navigation_requests: list[int] = []
+    zoom_requests: list[int] = []
+    canvas.image_navigation_request.connect(navigation_requests.append)
+    canvas.zoom_request.connect(lambda delta, _position: zoom_requests.append(delta))
+
+    canvas.wheelEvent(
+        _wheel_event(
+            delta_y=120, modifiers=Qt.KeyboardModifier.ControlModifier
+        )
+    )
+
+    assert zoom_requests == [120]
+    assert navigation_requests == []
+
+
+@pytest.mark.gui
+@pytest.mark.parametrize(
+    ("key", "expected"),
+    [
+        (Qt.Key.Key_Left, -1),
+        (Qt.Key.Key_Up, -1),
+        (Qt.Key.Key_Right, 1),
+        (Qt.Key.Key_Down, 1),
+    ],
+)
+def test_arrow_key_requests_image_navigation_without_selection(
+    *, canvas: Canvas, key: Qt.Key, expected: int
+) -> None:
+    requests: list[int] = []
+    canvas.image_navigation_request.connect(requests.append)
+    canvas.set_editing()
+
+    canvas.keyPressEvent(
+        QtGui.QKeyEvent(
+            QtCore.QEvent.Type.KeyPress, key, Qt.KeyboardModifier.NoModifier
+        )
+    )
+
+    assert requests == [expected]
+
+
+@pytest.mark.gui
+def test_arrow_key_still_moves_selected_shape(*, canvas: Canvas) -> None:
+    shape = Shape(
+        shape_type="rectangle",
+        points=np.array([(40, 20), (60, 30)], dtype=np.float64),
+        closed=True,
+    )
+    canvas.shapes = [shape]
+    canvas.selected_shapes = [shape]
+    requests: list[int] = []
+    canvas.image_navigation_request.connect(requests.append)
+    canvas.set_editing()
+
+    canvas.keyPressEvent(
+        QtGui.QKeyEvent(
+            QtCore.QEvent.Type.KeyPress,
+            Qt.Key.Key_Right,
+            Qt.KeyboardModifier.NoModifier,
+        )
+    )
+
+    assert requests == []
+    np.testing.assert_allclose(shape.points, [(45, 20), (65, 30)])
+
+
+@pytest.mark.gui
+def test_finalize_strip_converts_centerline_to_polygon(*, canvas: Canvas) -> None:
+    canvas.create_mode = "strip"
+    canvas.set_strip_half_width(value=5)
+    canvas._current = _DraftShape(
+        shape_type="linestrip",
+        points=(QPointF(20, 20), QPointF(50, 20), QPointF(50, 40)),
+        point_labels=(1, 1, 1),
+    )
+
+    canvas._finalize()
+
+    assert len(canvas.shapes) == 1
+    assert canvas.shapes[0].shape_type == "polygon"
+    assert canvas.shapes[0].closed is True
+    assert canvas.shapes[0].points[:, 1].min() <= 15
+
+
 @pytest.mark.gui
 def test_setting_scale_resizes_canvas(*, canvas: Canvas) -> None:
     canvas.scale = 2.0
@@ -60,6 +181,22 @@ def test_setting_unchanged_scale_still_resizes_canvas(*, canvas: Canvas) -> None
     canvas.pixmap = QtGui.QPixmap(2 * _WIDTH, 2 * _HEIGHT)
     canvas.scale = 1.0
     assert canvas.size() == QSize(2 * _WIDTH, 2 * _HEIGHT)
+
+
+def test_fill_opacity_applies_to_normal_and_selected_fill(*, canvas: Canvas) -> None:
+    canvas.set_fill_opacity(percent=15)
+    shape = Shape(label="roi", points=[[0, 0], [10, 0], [0, 10]], closed=True)
+
+    context = canvas._render_context(shape=shape, highlighted=False)
+
+    assert context.palette.fill.alpha() == 38
+    assert context.palette.select_fill.alpha() == 38
+
+
+@pytest.mark.parametrize("percent", [-1, 101])
+def test_fill_opacity_rejects_out_of_range(*, canvas: Canvas, percent: int) -> None:
+    with pytest.raises(ValueError, match="between 0 and 100"):
+        canvas.set_fill_opacity(percent=percent)
 
 
 @pytest.mark.gui

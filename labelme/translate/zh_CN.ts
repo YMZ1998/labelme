@@ -137,6 +137,14 @@
         <translation>单击添加下一个顶点；按住 Ctrl/Cmd 并单击以结束折线</translation>
     </message>
     <message>
+        <source>Strip: click the first centerline point</source>
+        <translation>条带：点击第一个中心线点</translation>
+    </message>
+    <message>
+        <source>Strip: click along the centerline; press Enter or double-click to finish</source>
+        <translation>条带：沿中心线点击；按 Enter 或双击完成</translation>
+    </message>
+    <message>
         <source>Click center point for circle</source>
         <translation>单击确定圆心</translation>
     </message>
@@ -505,8 +513,24 @@ Shapes</source>
         <translation>拟合成像外圆并追踪内边缘，再用四个点切割。</translation>
     </message>
     <message>
+        <source>Ring Settings</source>
+        <translation>环形设置</translation>
+    </message>
+    <message>
+        <source>Adjust ring extraction parameters before cutting.</source>
+        <translation>切割前调整环形轮廓提取参数。</translation>
+    </message>
+    <message>
         <source>Click to place linestrip points; Ctrl+click places the last one.</source>
         <translation>单击放置折线的点；Ctrl+单击放置最后一个点。</translation>
+    </message>
+    <message>
+        <source>Strip</source>
+        <translation>条带</translation>
+    </message>
+    <message>
+        <source>Click along a thin region&apos;s centerline to create a strip polygon.</source>
+        <translation>沿细长区域的中心线点击，生成条带多边形。</translation>
     </message>
     <message>
         <source>Fit to &amp;Window</source>
@@ -583,6 +607,10 @@ Switch the AI Text-to-Annotation model to &apos;SAM3 (smart)&apos;, or set the o
         <translation>%s 仅检测边界框，无法创建 &apos;%s&apos; 标注。
 
 请将 AI Text-to-Annotation 模型切换为 &apos;SAM3 (smart)&apos;，或将输出格式设置为 &apos;Rectangle&apos;。</translation>
+    </message>
+    <message>
+        <source>Could not extract the ring; use Ring Settings to adjust it.</source>
+        <translation>无法提取环形轮廓，请使用“环形设置”进行调整。</translation>
     </message>
     <message>
         <source>Invalid label</source>
@@ -987,6 +1015,14 @@ Please select a different model or use AI-Box mode.</source>
     <message>
         <source>Fill polygon while drawing</source>
         <translation>绘制过程中填充多边形</translation>
+    </message>
+    <message>
+        <source>Shape fill opacity</source>
+        <translation>形状填充透明度</translation>
+    </message>
+    <message>
+        <source>Controls the fill opacity while drawing, hovering, and editing.</source>
+        <translation>控制绘制、悬停和编辑时的填充透明度。</translation>
     </message>
     <message>
         <source>Let shape points extend beyond the image, e.g. for partially visible objects.</source>

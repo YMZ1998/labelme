@@ -11,6 +11,7 @@ from labelme._ring_config import DEFAULT_POINT_SPACING
 from labelme._ring_config import load_ring_point_spacing
 from labelme._ring_segmentation import cut_ring
 from labelme._ring_segmentation import resample_closed_contour
+from labelme._ring_segmentation import trace_default_imaging_ring
 from labelme._widgets.ring_contour_dialog import RingContourDialog
 
 
@@ -64,7 +65,7 @@ def test_dialog_defaults_to_lower_density(qtbot: QtBot) -> None:
     image.fill(QtGui.QColor("black"))
     dialog = RingContourDialog(image=image, parent=None)
     qtbot.addWidget(dialog)
-    assert dialog.point_spacing == DEFAULT_POINT_SPACING
+    assert dialog.point_spacing == load_ring_point_spacing()
     dialog._point_spacing.setValue(24)
     assert dialog.point_spacing == 24
 
@@ -84,3 +85,16 @@ def test_invalid_ini_point_spacing_uses_default(
     config_file.write_text(f"[ring]\npoint_spacing = {value}\n", encoding="utf-8")
 
     assert load_ring_point_spacing(config_file=config_file) == DEFAULT_POINT_SPACING
+
+
+def test_default_ring_extraction_finds_annular_region() -> None:
+    yy, xx = np.indices((201, 201))
+    radius = np.hypot(xx - 100, yy - 100)
+    image = np.zeros((201, 201, 3), dtype=np.uint8)
+    image[(radius >= 30) & (radius <= 80)] = 180
+
+    mask = trace_default_imaging_ring(image)
+
+    assert mask[100, 150]
+    assert not mask[100, 100]
+    assert not mask[100, 190]

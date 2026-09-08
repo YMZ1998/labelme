@@ -177,6 +177,21 @@ SETTINGS: Final[tuple[Setting, ...]] = (
         kind="bool",
     ),
     Setting(
+        key_path=("shape", "fill_opacity"),
+        group="Drawing and canvas",
+        label=cast(str, QT_TRANSLATE_NOOP("SettingsDialog", "Shape fill opacity")),
+        kind="int",
+        note=cast(
+            str,
+            QT_TRANSLATE_NOOP(
+                "SettingsDialog",
+                "Controls the fill opacity while drawing, hovering, and editing.",
+            ),
+        ),
+        minimum=0,
+        maximum=100,
+    ),
+    Setting(
         key_path=("canvas", "allow_out_of_bounds_points"),
         group="Drawing and canvas",
         label=cast(
