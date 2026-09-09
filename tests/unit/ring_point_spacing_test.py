@@ -61,6 +61,20 @@ def test_cutting_sides_each_have_only_three_points() -> None:
     np.testing.assert_allclose(second_side[-1], [100, 150])
 
 
+def test_parallel_cutting_sides_have_no_angle_restriction() -> None:
+    yy, xx = np.indices((201, 201))
+    radius = np.hypot(xx - 100, yy - 100)
+    mask = (radius >= 20) & (radius <= 80)
+    parallel_controls = [[100, 20], [100, 80], [100, 120], [100, 180]]
+
+    first_side = cut_ring(mask, parallel_controls, major_arc=True)
+    other_side = cut_ring(mask, parallel_controls, major_arc=False)
+
+    assert len(first_side) >= 3
+    assert len(other_side) >= 3
+    assert np.mean(first_side[:, 0]) != pytest.approx(np.mean(other_side[:, 0]))
+
+
 def test_dialog_defaults_to_lower_density(qtbot: QtBot) -> None:
     image = QtGui.QImage(200, 200, QtGui.QImage.Format.Format_RGB888)
     image.fill(QtGui.QColor("black"))

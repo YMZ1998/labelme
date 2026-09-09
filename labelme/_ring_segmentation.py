@@ -5,6 +5,7 @@ import math
 import numpy as np
 import numpy.typing as npt
 from scipy import ndimage
+from skimage import draw
 from skimage import filters
 from skimage import measure
 
@@ -325,7 +326,16 @@ def cut_ring(
     axes = np.column_stack((first / widths[0], -second / widths[1]))
     minimum_sine = 1e-3
     if abs(np.linalg.det(axes)) < minimum_sine:
-        raise ValueError("Parallel radial sides")
+        region = _cut_ring_between_parallel_sides(
+            mask=mask,
+            controls=points,
+            major_arc=major_arc,
+        )
+        return _ring_region_to_polygon(
+            region=region,
+            controls=points,
+            point_spacing=point_spacing,
+        )
     distances = np.linalg.solve(axes, inner_end - inner_start)
     if np.any(distances >= -epsilon):
         raise ValueError("Reversed inner/outer points")
@@ -348,14 +358,63 @@ def cut_ring(
     labels, count = ndimage.label(region)
     if count != 1:
         raise ValueError("Cut is disconnected; adjust threshold or radial sides")
-    contours = mask_contours(labels != 0)
+    return _ring_region_to_polygon(
+        region=labels != 0,
+        controls=points,
+        point_spacing=point_spacing,
+    )
+
+
+def _cut_ring_between_parallel_sides(
+    *,
+    mask: npt.NDArray[np.bool_],
+    controls: npt.NDArray[np.float64],
+    major_arc: bool,
+) -> npt.NDArray[np.bool_]:
+    """Split a ring along arbitrary parallel sides and select one component."""
+    separator = np.zeros(mask.shape, dtype=np.bool_)
+    extension = 3.0
+    for outer, inner in ((controls[0], controls[1]), (controls[3], controls[2])):
+        direction = outer - inner
+        direction /= np.linalg.norm(direction)
+        start = np.rint(inner - direction * extension).astype(int)
+        end = np.rint(outer + direction * extension).astype(int)
+        rows, columns = draw.line(start[1], start[0], end[1], end[0])
+        valid = (
+            (rows >= 0)
+            & (rows < mask.shape[0])
+            & (columns >= 0)
+            & (columns < mask.shape[1])
+        )
+        separator[rows[valid], columns[valid]] = True
+    separator = ndimage.binary_dilation(separator, iterations=2)
+
+    labels, count = ndimage.label(mask & ~separator)
+    minimum_components = 2
+    if count < minimum_components:
+        raise ValueError("The cutting sides do not split the ring")
+    sizes = np.bincount(labels.ravel())
+    component_labels = np.argsort(sizes[1:])[::-1] + 1
+    selected_label = component_labels[0 if major_arc else 1]
+    core = labels == selected_label
+    restored_side = separator & ndimage.binary_dilation(core, iterations=2)
+    return core | restored_side
+
+
+def _ring_region_to_polygon(
+    *,
+    region: npt.NDArray[np.bool_],
+    controls: npt.NDArray[np.float64],
+    point_spacing: float,
+) -> npt.NDArray[np.float64]:
+    contours = mask_contours(region)
     if len(contours) != 1:
         raise ValueError("Cut must open the ring hole")
     if not np.isfinite(point_spacing) or point_spacing <= 0:
         raise ValueError("Point spacing must be positive and finite")
     polygon = _resample_cut_contour(
-        contours[0], points, point_spacing=point_spacing
+        contours[0], controls, point_spacing=point_spacing
     )
-    polygon[:, 0] = np.clip(polygon[:, 0], 0, mask.shape[1] - 1)
-    polygon[:, 1] = np.clip(polygon[:, 1], 0, mask.shape[0] - 1)
+    polygon[:, 0] = np.clip(polygon[:, 0], 0, region.shape[1] - 1)
+    polygon[:, 1] = np.clip(polygon[:, 1], 0, region.shape[0] - 1)
     return polygon

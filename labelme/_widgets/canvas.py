@@ -196,6 +196,7 @@ class Canvas(QtWidgets.QWidget):
     edge_selected = QtCore.Signal(bool)
     mouse_moved = QtCore.Signal(QPointF)
     status_updated = QtCore.Signal(str)
+    edit_requested = QtCore.Signal()
 
     mode: _CanvasMode = _CanvasMode.EDIT
 
@@ -1207,6 +1208,7 @@ class Canvas(QtWidgets.QWidget):
                 and self._find_shape_at_point(pos) is not None
             ):
                 self._select_shape_point(pos, multiple_selection_mode=True)
+                self.edit_requested.emit()
                 self.update()
                 return
             self._press_left_while_drawing(
@@ -1262,8 +1264,8 @@ class Canvas(QtWidgets.QWidget):
                     polygon = self._ring_polygon(candidate.points)
                 except ValueError:
                     self._ring_error = self.tr(
-                        "Cannot form a ring: check point order and avoid "
-                        "parallel radial sides. Undo a point to retry."
+                        "Cannot form a ring: check point order and make sure "
+                        "both cutting sides cross the ring. Undo a point to retry."
                     )
                     return
                 if not self._allow_out_of_bounds_points and any(
