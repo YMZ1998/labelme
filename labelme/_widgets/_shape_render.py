@@ -78,6 +78,7 @@ class ShapeRenderContext:
     rotation_highlight: VertexHighlight | None
     show_label: bool = False
     line_style: QtCore.Qt.PenStyle = QtCore.Qt.PenStyle.SolidLine
+    selected_vertex_indices: frozenset[int] = frozenset()
 
 
 # Shapes are stroked in widget space, so the outline keeps this many screen
@@ -191,6 +192,22 @@ def _paint_shape_points(
         painter=painter,
         path=paths.vertices,
         highlighted=context.highlight is not None,
+        palette=palette,
+    )
+    selected_vertices = QtGui.QPainterPath()
+    for index in context.selected_vertex_indices:
+        if 0 <= index < len(shape.points):
+            pos = QtCore.QPointF(*(shape.points[index] * context.scale))
+            _draw_vertex(
+                path=selected_vertices,
+                pos=pos,
+                size=context.point_size * 1.7,
+                point_type="round",
+            )
+    _paint_filled_vertices(
+        painter=painter,
+        path=selected_vertices,
+        highlighted=True,
         palette=palette,
     )
     _paint_filled_vertices(

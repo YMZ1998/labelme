@@ -34,6 +34,7 @@ _ENUM_SETTINGS: Final = tuple(s for s in SETTINGS if s.kind == "enum")
 _BOOL_SETTINGS: Final = tuple(s for s in SETTINGS if s.kind == "bool")
 _COLOR_SETTINGS: Final = tuple(s for s in SETTINGS if s.kind == "color")
 _INT_SETTINGS: Final = tuple(s for s in SETTINGS if s.kind == "int")
+_FLOAT_SETTINGS: Final = tuple(s for s in SETTINGS if s.kind == "float")
 
 
 @pytest.mark.parametrize("setting", SETTINGS, ids=_ids(SETTINGS))
@@ -103,3 +104,14 @@ def test_int_default_matches_editor_range(
     assert isinstance(default, int) and not isinstance(default, bool)
     if setting.minimum is not None and setting.maximum is not None:
         assert setting.minimum <= default <= setting.maximum
+
+
+@pytest.mark.parametrize("setting", _FLOAT_SETTINGS, ids=_ids(_FLOAT_SETTINGS))
+def test_float_default_matches_editor_range(
+    *, setting: Setting, default_config: dict
+) -> None:
+    default = _resolve(config=default_config, key_path=setting.key_path)
+    assert isinstance(default, float)
+    assert setting.minimum is not None
+    assert setting.maximum is not None
+    assert setting.minimum <= default <= setting.maximum

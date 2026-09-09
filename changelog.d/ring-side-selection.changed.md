@@ -1,0 +1,1 @@
+Improve ring annotation side control: after placing three control points, Space persistently switches between the large and small side, Shift previews the opposite side, and the status bar names the side currently kept.

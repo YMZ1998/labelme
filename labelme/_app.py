@@ -44,6 +44,12 @@ from ._label_file import read_image_file
 from ._label_file import read_label_file
 from ._label_file import write_label_file
 from ._label_flags import compile_label_flags
+from ._onnx_segmentation import DEFAULT_POLYGON_DETAIL as ONNX_POLYGON_DETAIL
+from ._onnx_segmentation import OnnxSegmenter
+from ._onnx_segmentation import discover_onnx_model
+from ._polygon_merge import merge_polygons
+from ._polygon_simplification import simplify_polygon
+from ._polygon_smoothing import smooth_polygon
 from ._ring_config import load_ring_point_spacing
 from ._ring_segmentation import trace_default_imaging_ring
 from ._roi_tools_config import load_roi_tool_config
@@ -73,6 +79,7 @@ from ._widgets import UniqueLabelQListWidget
 from ._widgets import ZoomWidget
 from ._widgets import download_ai_model
 from ._widgets import format_shape_label
+from ._widgets._onnx_settings_dialog import OnnxSettingsDialog
 from ._widgets.label_list_widget import LABEL_COLOR_ROLE
 from ._widgets.ring_contour_dialog import RingContourDialog
 
@@ -88,6 +95,7 @@ _AI_CREATE_MODES: Final[tuple[str, ...]] = (
     "ai_points_to_shape",
     "ai_box_to_shape",
 )
+POLYGONS_TO_MERGE: Final[int] = 2
 
 # Keys of the Window State store, shared by the restore, reset, and close paths.
 WINDOW_SIZE_KEY: Final[str] = "window/size"
@@ -97,6 +105,7 @@ WINDOW_LAYOUT_KEY: Final[str] = "window/state"
 
 class _StatusBarWidgets(NamedTuple):
     message: QtWidgets.QLabel
+    annotation_progress: QtWidgets.QLabel
     stats: StatusStats
 
 
@@ -148,6 +157,10 @@ class _Actions(NamedTuple):
     remove_point: QtGui.QAction
     create_mode: QtGui.QAction
     edit_mode: QtGui.QAction
+    pan_mode: QtGui.QAction
+    smooth_polygon: QtGui.QAction
+    simplify_polygon: QtGui.QAction
+    merge_polygons: QtGui.QAction
     create_rectangle_mode: QtGui.QAction
     create_oriented_rectangle_mode: QtGui.QAction
     create_circle_mode: QtGui.QAction
@@ -160,6 +173,8 @@ class _Actions(NamedTuple):
     create_strip_settings_mode: QtGui.QAction
     create_ai_points_to_shape_mode: QtGui.QAction
     create_ai_box_to_shape_mode: QtGui.QAction
+    onnx_predict: QtGui.QAction
+    onnx_settings: QtGui.QAction
     open_next_img: QtGui.QAction
     open_prev_img: QtGui.QAction
     keep_prev_zoom: QtGui.QAction
@@ -215,6 +230,7 @@ class MainWindow(QtWidgets.QMainWindow):
     _shape_color_preview: dict | None
     _ai_annotation: AiAssistedAnnotationWidget
     _ai_text: AiTextToAnnotationWidget
+    _onnx_settings_dialog: OnnxSettingsDialog | None = None
 
     _output_dir: Path | None
     _image: QtGui.QImage
@@ -251,6 +267,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._shape_color_preview = None
 
         self._shape_clipboard = ShapeClipboard(parent=self)
+        self._onnx_segmenter = OnnxSegmenter()
 
         self._label_dialog = self._make_label_dialog(label_history=None)
 
@@ -287,6 +304,7 @@ class MainWindow(QtWidgets.QMainWindow):
             on_polygon_detail_changed=self._on_ai_polygon_detail_changed,
             parent=self,
         )
+        self._ai_annotation.hide()
         self._canvas_widgets.canvas.set_ai_model_name(
             model_name=self._ai_annotation.current_model_id
         )
@@ -303,6 +321,7 @@ class MainWindow(QtWidgets.QMainWindow):
             on_submit=self._submit_ai_prompt, parent=self
         )
         self._ai_text.setEnabled(False)
+        self._ai_text.hide()
 
         self._setup_toolbars()
 
@@ -427,6 +446,7 @@ class MainWindow(QtWidgets.QMainWindow):
             text=self.tr("Reload Directory"),
             slot=self.reload_directory,
             shortcut=shortcuts["reload_dir"],
+            icon="phosphor/arrow-clockwise.svg",
             tip=self.tr("Rescan the current directory and reload the current image"),
             enabled=False,
         )
@@ -547,6 +567,38 @@ class MainWindow(QtWidgets.QMainWindow):
             tip=self.tr("Move and edit the selected shapes"),
             enabled=False,
         )
+        pan_mode = action(
+            text=self.tr("Pan"),
+            slot=self._set_pan_mode,
+            icon="pan.svg",
+            tip=self.tr("Drag the image with the left mouse button"),
+            checkable=True,
+            enabled=False,
+        )
+        smooth_polygon_action = action(
+            text=self.tr("Smooth Polygon"),
+            slot=self.smooth_selected_polygons,
+            shortcut=shortcuts["smooth_polygon"],
+            icon="smooth-polygon.svg",
+            tip=self.tr("Smooth the selected polygon outlines"),
+            enabled=False,
+        )
+        simplify_polygon_action = action(
+            text=self.tr("Simplify Polygon"),
+            slot=self.simplify_selected_polygons,
+            shortcut=shortcuts["simplify_polygon"],
+            icon="simplify-polygon.svg",
+            tip=self.tr("Reduce points in the selected polygon outlines"),
+            enabled=False,
+        )
+        merge_polygons_action = action(
+            text=self.tr("Merge Polygons"),
+            slot=self.merge_selected_polygons,
+            shortcut=shortcuts["merge_polygons"],
+            icon="merge-polygons.svg",
+            tip=self.tr("Merge two selected overlapping polygons"),
+            enabled=False,
+        )
         create_rectangle_mode = action(
             text=self.tr("Rectangle"),
             slot=lambda: self._switch_canvas_mode(edit=False, create_mode="rectangle"),
@@ -657,6 +709,20 @@ class MainWindow(QtWidgets.QMainWindow):
             icon="ai-box.svg",
             tip=self.tr("Draw a bounding box to segment object."),
             enabled=False,
+        )
+        onnx_predict = action(
+            text=self.tr("ONNX Predict"),
+            slot=self.run_onnx_prediction,
+            shortcut=shortcuts["onnx_predict"],
+            icon="phosphor/sparkle.svg",
+            tip=self.tr("Run whole-image ONNX segmentation"),
+            enabled=False,
+        )
+        onnx_settings = action(
+            text=self.tr("ONNX Settings"),
+            slot=self._open_onnx_settings,
+            icon="phosphor/sliders-horizontal.svg",
+            tip=self.tr("Choose which ONNX classes are kept"),
         )
         open_next_img = action(
             text=self.tr("&Next Image"),
@@ -814,6 +880,7 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         on_load_active = (
             close,
+            pan_mode,
             create_mode,
             create_rectangle_mode,
             create_oriented_rectangle_mode,
@@ -827,6 +894,7 @@ class MainWindow(QtWidgets.QMainWindow):
             create_strip_settings_mode,
             create_ai_points_to_shape_mode,
             create_ai_box_to_shape_mode,
+            onnx_predict,
             brightness_contrast,
         )
         on_shapes_present = (save_as, hide_all, show_all, toggle_all)
@@ -882,6 +950,10 @@ class MainWindow(QtWidgets.QMainWindow):
             add_point_to_edge=add_point_to_edge,
             create_mode=create_mode,
             edit_mode=edit_mode,
+            pan_mode=pan_mode,
+            smooth_polygon=smooth_polygon_action,
+            simplify_polygon=simplify_polygon_action,
+            merge_polygons=merge_polygons_action,
             create_rectangle_mode=create_rectangle_mode,
             create_oriented_rectangle_mode=create_oriented_rectangle_mode,
             create_circle_mode=create_circle_mode,
@@ -894,6 +966,8 @@ class MainWindow(QtWidgets.QMainWindow):
             create_strip_settings_mode=create_strip_settings_mode,
             create_ai_points_to_shape_mode=create_ai_points_to_shape_mode,
             create_ai_box_to_shape_mode=create_ai_box_to_shape_mode,
+            onnx_predict=onnx_predict,
+            onnx_settings=onnx_settings,
             open_next_img=open_next_img,
             open_prev_img=open_prev_img,
             keep_prev_zoom=keep_prev_zoom,
@@ -1034,46 +1108,49 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _setup_toolbars(self) -> None:
         separator = functools.partial(_utils.new_separator, self)
-        select_ai_model = QtWidgets.QWidgetAction(self)
-        select_ai_model.setDefaultWidget(self._ai_annotation)
-
-        ai_prompt_action = QtWidgets.QWidgetAction(self)
-        ai_prompt_action.setDefaultWidget(self._ai_text)
-
+        tools_toolbar = ToolBar(
+            title="Tools",
+            actions=[
+                self._actions.open,
+                self._actions.open_dir,
+                self._actions.reload_dir,
+                self._actions.open_prev_img,
+                self._actions.open_next_img,
+                self._actions.save,
+                self._actions.delete_file,
+                separator(),
+                    self._actions.edit_mode,
+                    self._actions.smooth_polygon,
+                    self._actions.simplify_polygon,
+                    self._actions.merge_polygons,
+                    self._actions.duplicate,
+                self._actions.delete,
+                self._actions.undo,
+                self._actions.brightness_contrast,
+                separator(),
+                self._actions.fit_window,
+                self._actions.zoom_widget_action,
+                separator(),
+                self._actions.onnx_predict,
+                self._actions.onnx_settings,
+            ],
+            font_base=self.font(),
+        )
+        for button in tools_toolbar.findChildren(QtWidgets.QToolButton):
+            if button.defaultAction() is self._actions.reload_dir:
+                button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+                break
         self.addToolBar(
             Qt.ToolBarArea.TopToolBarArea,
-            ToolBar(
-                title="Tools",
-                actions=[
-                    self._actions.open,
-                    self._actions.open_dir,
-                    self._actions.reload_dir,
-                    self._actions.open_prev_img,
-                    self._actions.open_next_img,
-                    self._actions.save,
-                    self._actions.delete_file,
-                    separator(),
-                    self._actions.edit_mode,
-                    self._actions.duplicate,
-                    self._actions.delete,
-                    self._actions.undo,
-                    self._actions.brightness_contrast,
-                    separator(),
-                    self._actions.fit_window,
-                    self._actions.zoom_widget_action,
-                    separator(),
-                    select_ai_model,
-                    separator(),
-                    ai_prompt_action,
-                ],
-                font_base=self.font(),
-            ),
+            tools_toolbar,
         )
         self.addToolBar(
             Qt.ToolBarArea.LeftToolBarArea,
             ToolBar(
                 title="CreateShapeTools",
                 actions=[
+                    self._actions.pan_mode,
+                    separator(),
                     *[
                         a
                         for mode, a in self._actions.draw
@@ -1201,11 +1278,21 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _setup_status_bar(self) -> _StatusBarWidgets:
         message = QtWidgets.QLabel(self.tr("%s started.") % __appname__)
+        annotation_progress = QtWidgets.QLabel(self.tr("Labeled: 0/0"))
+        annotation_progress.setAccessibleName(self.tr("Annotation progress"))
+        annotation_progress.setToolTip(
+            self.tr("Number of images with a JSON label file / total images")
+        )
         stats = StatusStats()
         self.statusBar().addWidget(message, 1)
-        self.statusBar().addWidget(stats, 0)
+        self.statusBar().addPermanentWidget(annotation_progress, 0)
+        self.statusBar().addPermanentWidget(stats, 0)
         self.statusBar().show()
-        return _StatusBarWidgets(message=message, stats=stats)
+        return _StatusBarWidgets(
+            message=message,
+            annotation_progress=annotation_progress,
+            stats=stats,
+        )
 
     def _setup_canvas(self) -> _CanvasWidgets:
         zoom_widget = ZoomWidget()
@@ -1428,6 +1515,7 @@ class MainWindow(QtWidgets.QMainWindow):
         actions = (
             *[draw_action for _, draw_action in self._actions.draw],
             self._actions.edit_mode,
+            self._actions.pan_mode,
             *self._actions.edit_menu,
         )
         self._menus.edit.addActions(actions)
@@ -1655,6 +1743,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def _on_drawing_polygon_changed(self, drawing: bool, /) -> None:  # noqa: FBT001 -- Canvas.drawing_polygon slot
         # In the middle of drawing, toggling between modes should be disabled.
         self._actions.edit_mode.setEnabled(not drawing)
+        self._actions.pan_mode.setEnabled(not drawing)
         self._actions.undo_last_point.setEnabled(drawing)
         self._actions.undo.setEnabled(
             not drawing and self._canvas_widgets.canvas.can_restore_shape
@@ -1729,6 +1818,8 @@ class MainWindow(QtWidgets.QMainWindow):
         )
 
     def _switch_canvas_mode(self, *, edit: bool, create_mode: str | None) -> None:
+        self._canvas_widgets.canvas.set_panning(value=False)
+        self._actions.pan_mode.setChecked(False)
         self._canvas_widgets.canvas.set_editing(value=edit, create_mode=create_mode)
         self._refresh_status_stats()
         if edit:
@@ -1749,6 +1840,19 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         self._ai_annotation.setEnabled(not edit and create_mode in _AI_CREATE_MODES)
         self._set_point_prompt_mode(enabled=create_mode == "ai_points_to_shape")
+
+    def _set_pan_mode(self, enabled: bool = True, /) -> None:  # noqa: FBT001, FBT002 -- QAction payload
+        if not enabled:
+            self._canvas_widgets.canvas.set_panning(value=False)
+            return
+        self._canvas_widgets.canvas.set_editing(value=True, create_mode=None)
+        self._canvas_widgets.canvas.set_panning(value=True)
+        for _, draw_action in self._actions.draw:
+            draw_action.setEnabled(True)
+        self._actions.edit_mode.setEnabled(True)
+        self._ai_text.setEnabled(False)
+        self._ai_annotation.setEnabled(False)
+        self._set_point_prompt_mode(enabled=False)
 
     def _highlight_ai_buttons(self, highlight: bool, /) -> None:  # noqa: FBT001 -- hover_highlight_requested slot
         self._ai_buttons_highlighted = highlight
@@ -1926,6 +2030,87 @@ class MainWindow(QtWidgets.QMainWindow):
         self._actions.duplicate.setEnabled(n_selected)
         self._actions.copy.setEnabled(n_selected)
         self._actions.edit.setEnabled(n_selected)
+        self._actions.smooth_polygon.setEnabled(
+            any(shape.shape_type == "polygon" for shape in selected_shapes)
+        )
+        self._actions.simplify_polygon.setEnabled(
+            any(shape.shape_type == "polygon" for shape in selected_shapes)
+        )
+        self._actions.merge_polygons.setEnabled(
+            len(selected_shapes) == POLYGONS_TO_MERGE
+            and all(shape.shape_type == "polygon" for shape in selected_shapes)
+        )
+
+    def smooth_selected_polygons(self) -> None:
+        polygons = [
+            shape
+            for shape in self._canvas_widgets.canvas.selected_shapes
+            if shape.shape_type == "polygon"
+        ]
+        if not polygons:
+            return
+        for shape in polygons:
+            shape.points = smooth_polygon(shape.points)
+            shape.point_labels = np.ones(len(shape.points), dtype=np.int_)
+        self._canvas_widgets.canvas.backup_shapes()
+        self._canvas_widgets.canvas.update()
+        self.mark_dirty()
+
+    def simplify_selected_polygons(self) -> None:
+        polygons = [
+            shape
+            for shape in self._canvas_widgets.canvas.selected_shapes
+            if shape.shape_type == "polygon"
+        ]
+        if not polygons:
+            return
+        changed = False
+        for shape in polygons:
+            simplified = simplify_polygon(
+                shape.points,
+                tolerance=self._config["polygon_simplification"]["tolerance"],
+            )
+            if len(simplified) >= len(shape.points):
+                continue
+            shape.points = simplified
+            shape.point_labels = np.ones(len(shape.points), dtype=np.int_)
+            changed = True
+        if not changed:
+            return
+        self._canvas_widgets.canvas.backup_shapes()
+        self._canvas_widgets.canvas.update()
+        self.mark_dirty()
+
+    def merge_selected_polygons(self) -> None:
+        selected = self._canvas_widgets.canvas.selected_shapes
+        if len(selected) != POLYGONS_TO_MERGE or any(
+            shape.shape_type != "polygon" for shape in selected
+        ):
+            return
+        first, second = selected
+        try:
+            merged_points = merge_polygons(
+                first.points,
+                second.points,
+                image_shape=(self._image.height(), self._image.width()),
+                detail=self._config["mask_polygonization"]["detail"],
+            )
+        except ValueError as error:
+            self.show_error_message(
+                title=self.tr("Cannot merge polygons"), message=str(error)
+            )
+            return
+
+        canvas = self._canvas_widgets.canvas
+        first.points = merged_points
+        first.point_labels = np.ones(len(merged_points), dtype=np.int_)
+        canvas.shapes.remove(second)
+        canvas.selected_shapes.clear()
+        self.remove_labels(shapes=[second])
+        canvas.backup_shapes()
+        canvas.select_shapes(shapes=[first])
+        canvas.update()
+        self.mark_dirty()
 
     def add_label(self, *, shape: Shape) -> None:
         assert shape.label is not None
@@ -2046,6 +2231,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 raise RuntimeError("There are duplicate files.")
             if items:
                 items[0].setCheckState(Qt.CheckState.Checked)
+            self._refresh_annotation_progress()
             self._last_failed_auto_save_path = None
             return True
         except (LabelFileError, OSError, ValueError) as e:
@@ -2854,6 +3040,7 @@ class MainWindow(QtWidgets.QMainWindow):
             logger.info(f"Label file is removed: {annotation_path}")
             if item is not None:
                 item.setCheckState(Qt.CheckState.Unchecked)
+        self._refresh_annotation_progress()
 
         if current_label_path not in targets:
             self._update_delete_file_action()
@@ -2903,6 +3090,86 @@ class MainWindow(QtWidgets.QMainWindow):
         if self._config["ai"]["default"] == model_display:
             return
         self._apply_setting_change(("ai", "default"), model_display)
+
+    def _onnx_model_path(self) -> Path | None:
+        remembered = self._window_state.value("onnxModelPath", "", type=str)
+        if remembered and Path(remembered).is_file():
+            return Path(remembered)
+
+        discovered = discover_onnx_model(
+            repository_root=Path(__file__).resolve().parent.parent
+        )
+        if discovered is not None:
+            self._window_state.setValue("onnxModelPath", str(discovered.resolve()))
+            return discovered
+
+        selected, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self,
+            self.tr("Choose ONNX segmentation model"),
+            self.current_path(),
+            self.tr("ONNX models (*.onnx)"),
+        )
+        if not selected:
+            return None
+        path = Path(selected)
+        self._window_state.setValue("onnxModelPath", str(path.resolve()))
+        return path
+
+    def run_onnx_prediction(self, _checked: bool = False, /) -> None:  # noqa: FBT001, FBT002 -- QAction payload
+        if self._image.isNull():
+            return
+        model_path = self._onnx_model_path()
+        if model_path is None:
+            return
+
+        action = self._actions.onnx_predict
+        original_text = action.text()
+        action.setEnabled(False)
+        action.setText(self.tr("Predicting…"))
+        QtWidgets.QApplication.processEvents()
+        try:
+            image = _utils.img_qt_to_rgb_arr(self._image)
+            prediction = self._onnx_segmenter.predict(
+                image=image,
+                model_path=model_path,
+                polygon_detail=min(
+                    self._config["mask_polygonization"]["detail"],
+                    ONNX_POLYGON_DETAIL,
+                ),
+                keep_classes=self._config["onnx"]["keep_classes"],
+                minimum_polygon_area=self._config["onnx"][
+                    "minimum_polygon_area"
+                ],
+            )
+            if not prediction.shapes:
+                QtWidgets.QMessageBox.information(
+                    self,
+                    self.tr("ONNX Prediction"),
+                    self.tr("The model produced no foreground regions."),
+                )
+                return
+            self._load_shapes(prediction.shapes, replace=False)
+            self.mark_dirty()
+            self.show_status_message(
+                self.tr(
+                    "ONNX prediction: {count} shapes · {provider} · {ms:.1f} ms"
+                ).format(
+                    count=len(prediction.shapes),
+                    provider=prediction.provider,
+                    ms=prediction.elapsed_ms,
+                ),
+                delay=10000,
+            )
+        except Exception as error:
+            logger.opt(exception=error).error("ONNX segmentation failed")
+            QtWidgets.QMessageBox.critical(
+                self,
+                self.tr("ONNX Prediction Failed"),
+                f"{type(error).__name__}: {error}",
+            )
+        finally:
+            action.setText(original_text)
+            action.setEnabled(not self._image.isNull())
 
     def _on_ai_polygon_detail_changed(self, detail: int, /) -> None:
         self._apply_setting_change(("mask_polygonization", "detail"), detail)
@@ -3121,6 +3388,46 @@ class MainWindow(QtWidgets.QMainWindow):
         self._settings_dialog.raise_()
         self._settings_dialog.activateWindow()
 
+    def _open_onnx_settings(self) -> None:
+        if self._onnx_settings_dialog is None:
+            self._onnx_settings_dialog = OnnxSettingsDialog(
+                keep_classes=self._config["onnx"]["keep_classes"],
+                minimum_polygon_area=self._config["onnx"][
+                    "minimum_polygon_area"
+                ],
+                on_classes_change=self._apply_onnx_keep_classes,
+                on_minimum_area_change=self._apply_onnx_minimum_polygon_area,
+                parent=self,
+            )
+        else:
+            self._onnx_settings_dialog.set_keep_classes(
+                self._config["onnx"]["keep_classes"]
+            )
+            self._onnx_settings_dialog.set_minimum_polygon_area(
+                self._config["onnx"]["minimum_polygon_area"]
+            )
+        self._onnx_settings_dialog.show()
+        self._onnx_settings_dialog.raise_()
+        self._onnx_settings_dialog.activateWindow()
+
+    def _apply_onnx_keep_classes(self, values: list[str]) -> bool:
+        applied = self._apply_setting_change(("onnx", "keep_classes"), values)
+        if not applied and self._onnx_settings_dialog is not None:
+            self._onnx_settings_dialog.set_keep_classes(
+                self._config["onnx"]["keep_classes"]
+            )
+        return applied
+
+    def _apply_onnx_minimum_polygon_area(self, value: int) -> bool:
+        applied = self._apply_setting_change(
+            ("onnx", "minimum_polygon_area"), value
+        )
+        if not applied and self._onnx_settings_dialog is not None:
+            self._onnx_settings_dialog.set_minimum_polygon_area(
+                self._config["onnx"]["minimum_polygon_area"]
+            )
+        return applied
+
     def _open_config_file(self) -> None:
         # Only reachable from the Settings dialog, which opens solely when the
         # config is an editable file (see _is_settings_editable).
@@ -3202,19 +3509,19 @@ class MainWindow(QtWidgets.QMainWindow):
         return str(Path(self._image_path).parent) if self._image_path else "."
 
     def remove_selected_point(self) -> None:
-        if not self._canvas_widgets.canvas.remove_selected_point():
+        canvas = self._canvas_widgets.canvas
+        if not canvas.remove_selected_point():
             return
         if (
-            self._canvas_widgets.canvas.hovered_shape
-            and len(self._canvas_widgets.canvas.hovered_shape.points) == 0
+            canvas.hovered_shape
+            and len(canvas.hovered_shape.points) == 0
         ):
-            self._canvas_widgets.canvas.delete_shape(
-                shape=self._canvas_widgets.canvas.hovered_shape
-            )
-            self.remove_labels(shapes=[self._canvas_widgets.canvas.hovered_shape])
+            canvas.delete_shape(shape=canvas.hovered_shape)
+            self.remove_labels(shapes=[canvas.hovered_shape])
             if self.has_no_shapes():
                 for action in self._actions.on_shapes_present:
                     action.setEnabled(False)
+        canvas._commit_pending_shape_move()
         self.mark_dirty()
 
     def delete_selected_shapes(self) -> None:
@@ -3386,6 +3693,19 @@ class MainWindow(QtWidgets.QMainWindow):
                 file_list.setCurrentRow(image_paths.index(self._file_list_image_path))
 
         self.setWindowTitle(self._get_window_title(dirty=self._is_changed))
+        self._refresh_annotation_progress()
+
+    def _refresh_annotation_progress(self) -> None:
+        labeled, total = _count_annotated_images(
+            image_paths=self._loaded_image_paths,
+            output_dir=self._output_dir,
+        )
+        self._status_bar.annotation_progress.setText(
+            self.tr("Labeled: {labeled}/{total}").format(
+                labeled=labeled,
+                total=total,
+            )
+        )
 
     def _update_status_stats(self, mouse_pos: QtCore.QPointF, /) -> None:
         self._status_mouse_pos = QtCore.QPointF(mouse_pos)
@@ -3480,6 +3800,21 @@ def _resolve_label_path(*, image_or_label_path: str, output_dir: Path | None) ->
     image_path = Path(image_or_label_path)
     parent = output_dir if output_dir is not None else image_path.parent
     return str(parent / f"{image_path.stem}{LABEL_FILE_SUFFIX}")
+
+
+def _count_annotated_images(
+    *, image_paths: list[str], output_dir: Path | None
+) -> tuple[int, int]:
+    labeled = sum(
+        Path(
+            _resolve_label_path(
+                image_or_label_path=image_path,
+                output_dir=output_dir,
+            )
+        ).is_file()
+        for image_path in image_paths
+    )
+    return labeled, len(image_paths)
 
 
 def _resolve_stored_image_path(*, image_path: str, label_dir: Path) -> str:

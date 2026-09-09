@@ -150,6 +150,18 @@ class _CanvasMode(enum.Enum):
     EDIT = enum.auto()
 
 
+def _shortest_polygon_vertex_arc(
+    *, point_count: int, endpoints: tuple[int, int]
+) -> list[int]:
+    """Return the vertex indices on the shorter inclusive arc between endpoints."""
+    start, end = endpoints
+    forward = [(start + offset) % point_count for offset in range(point_count)]
+    forward = forward[: forward.index(end) + 1]
+    backward = [(start - offset) % point_count for offset in range(point_count)]
+    backward = backward[: backward.index(end) + 1]
+    return sorted(forward if len(forward) <= len(backward) else backward)
+
+
 class Canvas(QtWidgets.QWidget):
     pixmap: QtGui.QPixmap
     _pixmap_hash: int | None
@@ -188,6 +200,7 @@ class Canvas(QtWidgets.QWidget):
     mode: _CanvasMode = _CanvasMode.EDIT
 
     _create_mode: _CreateMode = "polygon"
+    _ring_prefer_major_arc: bool = True
     _ring_major_arc: bool = True
     _ring_control_points: tuple[QPointF, ...] = ()
     _ring_error: str | None = None
@@ -211,6 +224,9 @@ class Canvas(QtWidgets.QWidget):
     _rotation_original_points: np.ndarray
 
     _pan_anchor: QPointF | None
+    _pan_mode: bool
+    _selected_vertices_shape: Shape | None
+    _selected_vertex_indices: set[int]
 
     _highlight: VertexHighlight | None
     _rotation_highlight: VertexHighlight | None
@@ -252,6 +268,8 @@ class Canvas(QtWidgets.QWidget):
         super().__init__(*args, **kwargs)
 
         self._cursor = CursorRole.DEFAULT
+        self._selected_vertices_shape = None
+        self._selected_vertex_indices: set[int] = set()
         self.reset_state()
 
         # self._line represents:
@@ -275,6 +293,7 @@ class Canvas(QtWidgets.QWidget):
         self._hovered_shape_is_selected: bool = False
         self._painter = QtGui.QPainter()
         self._pan_anchor = None
+        self._pan_mode = False
         self._color_resolver: Callable[[str], tuple[int, int, int]] | None = None
         self._point_size: int = 8
         self._point_type: Literal["square", "round"] = "round"
@@ -395,6 +414,11 @@ class Canvas(QtWidgets.QWidget):
             highlight=self._highlight if highlighted else None,
             rotation_highlight=self._rotation_highlight if highlighted else None,
             show_label=self._show_labels,
+            selected_vertex_indices=(
+                frozenset(self._selected_vertex_indices)
+                if shape is self._selected_vertices_shape
+                else frozenset()
+            ),
         )
 
     def _draft_render_context(
@@ -624,6 +648,22 @@ class Canvas(QtWidgets.QWidget):
                 self.update()
         self._update_status(extra_messages=None)
 
+    def set_panning(self, *, value: bool) -> None:
+        self._pan_mode = value
+        if value:
+            need_update = self._set_highlight(
+                hovered_shape=None,
+                hovered_edge=None,
+                hovered_vertex=None,
+                hovered_rotation=None,
+            )
+            need_update |= self.deselect_shape()
+            if need_update:
+                self.update()
+        else:
+            self._finish_pan()
+        self._update_status(extra_messages=None)
+
     def _set_highlight(
         self,
         *,
@@ -664,7 +704,11 @@ class Canvas(QtWidgets.QWidget):
 
     def _update_status(self, *, extra_messages: list[str] | None) -> None:
         messages: list[str] = []
-        if self.mode == _CanvasMode.CREATE:
+        if self._pan_mode:
+            messages.extend(
+                [self.tr("Panning canvas"), self.tr("Drag with left mouse button")]
+            )
+        elif self.mode == _CanvasMode.CREATE:
             messages.append(self.tr("Creating %r") % self.create_mode)
             messages.append(self._get_create_mode_message())
             if self._current is not None:
@@ -688,12 +732,20 @@ class Canvas(QtWidgets.QWidget):
                 self.tr("Ring: click the outer start point (1/4)"),
                 self.tr("Ring: click the inner start point (2/4)"),
                 self.tr("Ring: click the inner end point (3/4)"),
-                self.tr(
-                    "Ring: click the outer end point (4/4); "
-                    "hold Shift for the small arc"
-                ),
+                self.tr("Ring: move the outer end point (4/4)"),
             )
-            return messages[0 if is_new else min(len(self._current.points), 3)]
+            message = messages[0 if is_new else min(len(self._current.points), 3)]
+            if not is_new and len(self._current.points) == RING_POINT_COUNT - 1:
+                side = (
+                    self.tr("large side")
+                    if self._ring_major_arc
+                    else self.tr("small side")
+                )
+                message = self.tr(
+                    "{instruction}; keeping {side}. "
+                    "Space switches side; hold Shift to preview the opposite side"
+                ).format(instruction=message, side=side)
+            return message
         if self.create_mode == "ai_points_to_shape":
             return self.tr(
                 "Click points to include or Shift+Click to exclude."
@@ -747,6 +799,9 @@ class Canvas(QtWidgets.QWidget):
     def _dispatch_pointer_move(self, *, pos: QPointF, event: QtGui.QMouseEvent) -> None:
         if self._pan_anchor is not None:
             self._advance_pan(event=event)
+            return
+        if self._pan_mode:
+            self._apply_cursor(CursorRole.GRAB)
             return
         if self.mode == _CanvasMode.CREATE:
             self._track_drawing_cursor(pos=pos, event=event)
@@ -839,7 +894,9 @@ class Canvas(QtWidgets.QWidget):
     def _refresh_hover_state(self, *, pos: QPointF) -> None:
         status_messages: list[str] = []
         self._highlight_hover_shape(pos=pos, status_messages=status_messages)
-        self.vertex_selected.emit(self._hovered_vertex is not None)
+        self.vertex_selected.emit(
+            self._hovered_vertex is not None or bool(self._selected_vertex_indices)
+        )
         self.edge_selected.emit(self._hovered_edge is not None)
         self._update_status(extra_messages=status_messages)
 
@@ -847,8 +904,13 @@ class Canvas(QtWidgets.QWidget):
         current = self._current
         assert current is not None
         mode = self.create_mode
-        if mode in POLYLINE_SHAPE_TYPES or mode == "annular_sector":
-            self._ring_major_arc = not is_shift_pressed
+        if mode == "annular_sector":
+            self._ring_major_arc = self._ring_prefer_major_arc != is_shift_pressed
+            self._ring_error = None
+            self._line = dataclasses.replace(
+                self._line, points=(current.points[-1], pos), point_labels=(1, 1)
+            )
+        elif mode in POLYLINE_SHAPE_TYPES:
             self._ring_error = None
             self._line = dataclasses.replace(
                 self._line, points=(current.points[-1], pos), point_labels=(1, 1)
@@ -1075,6 +1137,27 @@ class Canvas(QtWidgets.QWidget):
         self.update()
 
     def remove_selected_point(self) -> bool:
+        if self._selected_vertices_shape is not None and self._selected_vertex_indices:
+            shape = self._selected_vertices_shape
+            indices = sorted(self._selected_vertex_indices)
+            endpoint_count = 2
+            if shape.shape_type == "polygon" and len(indices) == endpoint_count:
+                indices = _shortest_polygon_vertex_arc(
+                    point_count=len(shape.points),
+                    endpoints=(indices[0], indices[1]),
+                )
+            if shape.shape_type != "polygon" or (
+                len(shape.points) - len(indices) < MIN_POLYGON_POINT_COUNT
+            ):
+                return False
+            shape.points = np.delete(shape.points, indices, axis=0)
+            shape.point_labels = np.delete(shape.point_labels, indices)
+            self._clear_selected_vertices()
+            self._clear_highlight_state()
+            self.hovered_shape = shape
+            self._is_moving_shape = True
+            self.update()
+            return True
         shape = self._last_hovered_shape
         index = self._last_hovered_vertex
         if shape is None or index is None or not shape.can_remove_point():
@@ -1091,7 +1174,6 @@ class Canvas(QtWidgets.QWidget):
         # Repaint now; otherwise the edit is invisible until the next mouse move.
         self.update()
         return True
-
     def mousePressEvent(self, a0: QtGui.QMouseEvent, /) -> None:
         pos: QPointF = self.transform_widget_point_to_image(a0.position())
         self._dispatch_pointer_press(pos=pos, event=a0)
@@ -1103,6 +1185,9 @@ class Canvas(QtWidgets.QWidget):
         self._clear_ai_existing_shape_highlights()
         button = event.button()
         if button == Qt.MouseButton.LeftButton:
+            if self._pan_mode:
+                self._begin_pan(event=event)
+                return
             self._press_left(pos=pos, event=event)
             return
         if button == Qt.MouseButton.RightButton and self.mode == _CanvasMode.EDIT:
@@ -1170,7 +1255,7 @@ class Canvas(QtWidgets.QWidget):
             vertex = self._line.points[1]
             candidate = current.add_point(vertex)
             if len(candidate.points) == RING_POINT_COUNT:
-                self._ring_major_arc = not bool(
+                self._ring_major_arc = self._ring_prefer_major_arc != bool(
                     event.modifiers() & Qt.KeyboardModifier.ShiftModifier
                 )
                 try:
@@ -1276,6 +1361,9 @@ class Canvas(QtWidgets.QWidget):
         is_shift_pressed: bool,
     ) -> None:
         mode = self.create_mode
+        if mode == "annular_sector":
+            self._ring_prefer_major_arc = not is_shift_pressed
+            self._ring_major_arc = self._ring_prefer_major_arc
         if mode in _AI_CREATE_MODES:
             model_name = self.get_ai_model_name()
             if not download_ai_model(model_name=model_name, parent=self):
@@ -1309,6 +1397,18 @@ class Canvas(QtWidgets.QWidget):
         self, *, pos: QPointF, event: QtGui.QMouseEvent
     ) -> None:
         modifiers = event.modifiers()
+        if (
+            modifiers & Qt.KeyboardModifier.ControlModifier
+            and self._is_vertex_selected()
+            and self.hovered_shape is not None
+            and self.hovered_shape.shape_type == "polygon"
+        ):
+            self._toggle_selected_vertex(
+                shape=self.hovered_shape, index=typing.cast(int, self._hovered_vertex)
+            )
+            return
+        if not modifiers & Qt.KeyboardModifier.ControlModifier:
+            self._clear_selected_vertices()
         if self._maybe_modify_polygon_topology(modifiers=modifiers):
             # remove_selected_point already repainted; just consume the press.
             return
@@ -1320,6 +1420,27 @@ class Canvas(QtWidgets.QWidget):
         )
         self._prev_point = pos
         self.update()
+
+    def _toggle_selected_vertex(self, *, shape: Shape, index: int) -> None:
+        if self._selected_vertices_shape is not shape:
+            self._selected_vertices_shape = shape
+            self._selected_vertex_indices.clear()
+        if index in self._selected_vertex_indices:
+            self._selected_vertex_indices.remove(index)
+        else:
+            self._selected_vertex_indices.add(index)
+        if not self._selected_vertex_indices:
+            self._selected_vertices_shape = None
+        self.selection_changed.emit([shape])
+        self.vertex_selected.emit(bool(self._selected_vertex_indices))
+        self.update()
+
+    def _clear_selected_vertices(self) -> None:
+        if not self._selected_vertex_indices:
+            return
+        self._selected_vertex_indices.clear()
+        self._selected_vertices_shape = None
+        self.vertex_selected.emit(False)  # noqa: FBT003 -- Qt signal payload
 
     def _maybe_modify_polygon_topology(self, *, modifiers: Qt.KeyboardModifier) -> bool:
         # Returns True only when the press is consumed as a terminal edit (a point
@@ -1361,6 +1482,9 @@ class Canvas(QtWidgets.QWidget):
             self._release_right(event=event)
             return
         if button == Qt.MouseButton.LeftButton:
+            if self._pan_mode:
+                self._finish_pan()
+                return
             self._release_left()
             return
         if button == Qt.MouseButton.MiddleButton:
@@ -1502,6 +1626,8 @@ class Canvas(QtWidgets.QWidget):
         self._finalize()
 
     def select_shapes(self, *, shapes: list[Shape]) -> None:
+        if self._selected_vertices_shape not in shapes:
+            self._clear_selected_vertices()
         self.selection_changed.emit(shapes)
         self.update()
 
@@ -1643,6 +1769,7 @@ class Canvas(QtWidgets.QWidget):
         return True
 
     def deselect_shape(self) -> bool:
+        self._clear_selected_vertices()
         if not self.selected_shapes:
             return False
         self.selection_changed.emit([])
@@ -2132,6 +2259,15 @@ class Canvas(QtWidgets.QWidget):
             if key == Qt.Key.Key_Escape and self._current is not None:
                 self._cancel_current_shape()
             elif (
+                key == Qt.Key.Key_Space
+                and self.create_mode == "annular_sector"
+                and self._current is not None
+                and len(self._current.points) == RING_POINT_COUNT - 1
+            ):
+                self._ring_prefer_major_arc = not self._ring_prefer_major_arc
+                self._ring_major_arc = self._ring_prefer_major_arc
+                self.update()
+            elif (
                 key in (Qt.Key.Key_Return, Qt.Key.Key_Space) and self._can_close_shape()
             ):
                 self._finalize()
@@ -2153,6 +2289,14 @@ class Canvas(QtWidgets.QWidget):
     def keyReleaseEvent(self, a0: QtGui.QKeyEvent, /) -> None:
         modifiers = a0.modifiers()
         if self.mode == _CanvasMode.CREATE:
+            if (
+                self.create_mode == "annular_sector"
+                and a0.key() == Qt.Key.Key_Shift
+                and self._current is not None
+                and len(self._current.points) == RING_POINT_COUNT - 1
+            ):
+                self._ring_major_arc = self._ring_prefer_major_arc
+                self.update()
             if not modifiers:
                 self._snapping = True
         elif self.mode == _CanvasMode.EDIT:
@@ -2280,6 +2424,7 @@ class Canvas(QtWidgets.QWidget):
         self._hovered_edge = None
         self._hovered_rotation = None
         self._clear_highlight_state()
+        self._clear_selected_vertices()
         self._set_ai_existing_shape_highlights(shapes=[])
 
     def load_pixmap(self, *, pixmap: QtGui.QPixmap, clear_shapes: bool = True) -> None:
@@ -2346,6 +2491,8 @@ class Canvas(QtWidgets.QWidget):
         self._hovered_edge = None
         self._last_hovered_edge = None
         self._hovered_rotation = None
+        self._selected_vertices_shape = None
+        self._selected_vertex_indices.clear()
         self.update()
 
 

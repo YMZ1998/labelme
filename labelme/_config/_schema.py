@@ -19,7 +19,9 @@ Group = Literal[
     "Label behavior",
     "AI assist",
 ]
-Kind = Literal["bool", "color", "enum", "int", "str_list", "language"]
+Kind = Literal[
+    "bool", "color", "enum", "float", "int", "multi_enum", "str_list", "language"
+]
 
 # Group names double as headings. QT_TRANSLATE_NOOP marks them for
 # pyside6-lupdate under the SettingsDialog context (where they are resolved via
@@ -51,8 +53,8 @@ class Setting:
     choice_labels: tuple[str, ...] | None = None
     # Optional muted caption rendered beneath the control.
     note: str | None = None
-    minimum: int | None = None
-    maximum: int | None = None
+    minimum: float | int | None = None
+    maximum: float | int | None = None
     # Marks a feature shipped for early use: renders a "BETA" badge beside the
     # label so users expect rough edges and report issues. Drop when it stabilizes.
     beta: bool = False
@@ -212,6 +214,27 @@ SETTINGS: Final[tuple[Setting, ...]] = (
         beta=True,
     ),
     Setting(
+        key_path=("polygon_simplification", "tolerance"),
+        group="Drawing and canvas",
+        label=cast(
+            str,
+            QT_TRANSLATE_NOOP(
+                "SettingsDialog", "Polygon simplification tolerance"
+            ),
+        ),
+        kind="float",
+        note=cast(
+            str,
+            QT_TRANSLATE_NOOP(
+                "SettingsDialog",
+                "Maximum outline deviation in pixels. Smaller values retain "
+                "more points.",
+            ),
+        ),
+        minimum=0.1,
+        maximum=10.0,
+    ),
+    Setting(
         key_path=("shape", "show_labels"),
         group="Drawing and canvas",
         label=cast(
@@ -311,6 +334,39 @@ SETTINGS: Final[tuple[Setting, ...]] = (
         ),
         minimum=0,
         maximum=100,
+    ),
+    Setting(
+        key_path=("onnx", "keep_classes"),
+        group="AI assist",
+        label=cast(
+            str, QT_TRANSLATE_NOOP("SettingsDialog", "ONNX classes to keep")
+        ),
+        kind="multi_enum",
+        choices=("1", "2", "3"),
+        note=cast(
+            str,
+            QT_TRANSLATE_NOOP(
+                "SettingsDialog",
+                "Only checked classes are converted to labels after ONNX inference.",
+            ),
+        ),
+    ),
+    Setting(
+        key_path=("onnx", "minimum_polygon_area"),
+        group="AI assist",
+        label=cast(
+            str, QT_TRANSLATE_NOOP("SettingsDialog", "Minimum ONNX polygon area")
+        ),
+        kind="int",
+        note=cast(
+            str,
+            QT_TRANSLATE_NOOP(
+                "SettingsDialog",
+                "Discard ONNX polygons smaller than this area in square pixels.",
+            ),
+        ),
+        minimum=0,
+        maximum=1_000_000,
     ),
     Setting(
         key_path=("ai", "suppress_existing_shape_matches"),

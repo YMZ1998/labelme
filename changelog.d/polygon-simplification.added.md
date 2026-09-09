@@ -1,0 +1,1 @@
+Add an undoable Simplify Polygon action and toolbar button, with the `Shift+D` shortcut and a configurable conservative pixel tolerance, to reduce redundant outline points while preserving the closed shape.

@@ -18,6 +18,30 @@ ApplySetting = Callable[[tuple[str, ...], object], bool]
 PreviewShapeColor = Callable[[tuple[str, ...], list[int] | None], None]
 
 
+class _MultiEnumEditor(QtWidgets.QWidget):
+    value_changed = QtCore.Signal(list)
+
+    def __init__(self, *, items: Sequence[tuple[str, object]]) -> None:
+        super().__init__()
+        layout = QtWidgets.QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        self._checks: list[tuple[QtWidgets.QCheckBox, object]] = []
+        for label, value in items:
+            check = QtWidgets.QCheckBox(label)
+            check.toggled.connect(lambda: self.value_changed.emit(self.value()))
+            layout.addWidget(check)
+            self._checks.append((check, value))
+
+    def value(self) -> list[object]:
+        return [value for check, value in self._checks if check.isChecked()]
+
+    def set_value(self, value: object) -> None:
+        selected = set(value) if isinstance(value, list) else set()
+        for check, item_value in self._checks:
+            with QtCore.QSignalBlocker(check):
+                check.setChecked(item_value in selected)
+
+
 class _PlainTextEdit(QtWidgets.QPlainTextEdit):
     editing_finished = QtCore.Signal()
 
@@ -188,7 +212,10 @@ class _SettingsPage(QtWidgets.QWidget):
         # the top, so short groups near the bottom can become active too.
         reading_position = value + min(value, viewport.height() // 2)
         active = 0
-        for index, group in enumerate(self._groups):
+        # Reserve the final section for the exact bottom. Otherwise a taller
+        # final section can become active just before the scrollbar reaches its
+        # end, making the last two navigation entries indistinguishable.
+        for index, group in enumerate(self._groups[:-1]):
             group_top = group.mapTo(self._content, QtCore.QPoint()).y()
             if group_top > reading_position:
                 break
@@ -449,6 +476,36 @@ class SettingsDialog(QtWidgets.QDialog):
                 lambda new_value: self._apply(setting.key_path, new_value)
             )
             return slider
+        if setting.kind == "float":
+            assert isinstance(value, float)
+            assert setting.minimum is not None
+            assert setting.maximum is not None
+            spinbox = QtWidgets.QDoubleSpinBox()
+            spinbox.setDecimals(1)
+            spinbox.setSingleStep(0.1)
+            spinbox.setRange(float(setting.minimum), float(setting.maximum))
+            spinbox.setSuffix(self.tr(" px"))
+            spinbox.setValue(value)
+            spinbox.valueChanged.connect(
+                lambda new_value: self._apply(setting.key_path, new_value)
+            )
+            return spinbox
+        if setting.kind == "multi_enum":
+            assert setting.choices is not None
+            items: list[tuple[str, object]] = []
+            for index, choice in enumerate(setting.choices):
+                label = (
+                    self.tr(setting.choice_labels[index])
+                    if setting.choice_labels is not None
+                    else str(choice)
+                )
+                items.append((label, choice))
+            editor = _MultiEnumEditor(items=items)
+            editor.set_value(value)
+            editor.value_changed.connect(
+                lambda values: self._apply(setting.key_path, values)
+            )
+            return editor
         if setting.kind == "language":
             languages = sorted(
                 (
@@ -560,6 +617,9 @@ class SettingsDialog(QtWidgets.QDialog):
         elif isinstance(editor, IntegerSlider):
             assert isinstance(value, int)
             editor.set_value(value)
+        elif isinstance(editor, QtWidgets.QDoubleSpinBox):
+            assert isinstance(value, float)
+            editor.setValue(value)
         elif isinstance(editor, QtWidgets.QLineEdit):
             assert isinstance(value, int)
             editor.setText(str(value))
@@ -567,6 +627,8 @@ class SettingsDialog(QtWidgets.QDialog):
             items = value if isinstance(value, list) else []
             editor.setPlainText("\n".join(str(item) for item in items))
             editor.mark_committed()
+        elif isinstance(editor, _MultiEnumEditor):
+            editor.set_value(value)
         elif isinstance(editor, _ColorSwatchButton):
             editor.set_rgb(_parse_rgb(value=value))
 

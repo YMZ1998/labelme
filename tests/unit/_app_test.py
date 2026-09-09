@@ -21,6 +21,21 @@ from labelme._roi_tools_config import RoiToolConfig
 from labelme._shape import Shape
 
 
+def test_count_annotated_images_uses_output_directory(tmp_path: Path) -> None:
+    image_paths = [
+        tmp_path / "images" / "first.png",
+        tmp_path / "images" / "second.png",
+    ]
+    output_dir = tmp_path / "labels"
+    output_dir.mkdir()
+    (output_dir / "second.json").write_text("{}", encoding="utf-8")
+
+    assert _app._count_annotated_images(
+        image_paths=[str(path) for path in image_paths],
+        output_dir=output_dir,
+    ) == (1, 2)
+
+
 @pytest.mark.parametrize(
     "create_mode, ai_output_format, expected",
     [
@@ -78,7 +93,7 @@ def test_is_valid_label(
     [
         ("polygon", False, "1"),
         ("linestrip", True, "2"),
-        ("annular_sector", False, "5"),
+        ("annular_sector", False, "3"),
         ("rectangle", False, None),
     ],
 )

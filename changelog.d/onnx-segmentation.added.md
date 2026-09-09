@@ -1,0 +1,1 @@
+Add whole-image ONNX segmentation for OCT images, available with Shift+A, converting selected foreground classes to ungrouped, lower-density editable polygons labeled `1`, `2`, and `3`, with settings for retained classes and minimum polygon area.

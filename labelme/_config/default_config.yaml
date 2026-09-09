@@ -39,6 +39,11 @@ shape:
   show_labels: false
 mask_polygonization:
   detail: 80
+polygon_simplification:
+  tolerance: 0.5
+onnx:
+  keep_classes: ["1", "2", "3"]
+  minimum_polygon_area: 0
 ai:
   default: Sam2 (balanced)
   suppress_existing_shape_matches: false
@@ -118,6 +123,10 @@ shortcuts:
   create_point:
   create_linestrip:
   edit_shape: Ctrl+J
+  smooth_polygon: Shift+S
+  simplify_polygon: Shift+D
+  merge_polygons: Ctrl+Alt+M
+  onnx_predict: Shift+A
   delete_shape: Delete
   duplicate_shape: Ctrl+D
   copy_shape: Ctrl+C

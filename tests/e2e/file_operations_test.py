@@ -93,6 +93,7 @@ def test_ctrl_selected_label_files_are_deleted_together(
 
     win._loaded_image_paths = [str(path) for path in image_paths]
     win._refresh_file_list()
+    assert win._status_bar.annotation_progress.text() == "Labeled: 2/2"
     with QtCore.QSignalBlocker(win._docks.file_list):
         for row in range(win._docks.file_list.count()):
             win._docks.file_list.item(row).setSelected(True)
@@ -108,6 +109,7 @@ def test_ctrl_selected_label_files_are_deleted_together(
     win.delete_file()
 
     remaining = [path for path in label_paths if path.exists()]
+    assert win._status_bar.annotation_progress.text() == "Labeled: 0/2"
     win.close()
     assert remaining == []
     assert confirmations and "2" in confirmations[0][0]

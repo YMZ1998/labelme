@@ -14,6 +14,7 @@ from labelme._config import load_config
 from labelme._widgets._integer_slider import IntegerSlider
 from labelme._widgets.settings_dialog import SettingsDialog
 from labelme._widgets.settings_dialog import _ColorSwatchButton
+from labelme._widgets.settings_dialog import _MultiEnumEditor
 from labelme._widgets.settings_dialog import _PlainTextEdit
 
 Applied = list[tuple[tuple[str, ...], object]]
@@ -96,6 +97,18 @@ def test_polygon_detail_slider_applies_integer_value(
     slider.set_value(60)
 
     assert (("mask_polygonization", "detail"), 60) in applied
+
+
+def test_onnx_keep_classes_applies_checked_values(
+    *, dialog: SettingsDialog, applied: Applied
+) -> None:
+    choices = dialog._editors[("onnx", "keep_classes")]
+    assert isinstance(choices, _MultiEnumEditor)
+    assert choices.value() == ["1", "2", "3"]
+
+    choices._checks[1][0].setChecked(False)
+
+    assert (("onnx", "keep_classes"), ["1", "3"]) in applied
 
 
 def test_unbounded_integer_edit_accepts_python_ints(
