@@ -1,1 +1,1 @@
-Add an undoable Smooth Polygon action, available with Shift+S, for reducing jaggedness in selected polygon outlines without increasing their point count.
+Add an undoable Smooth Polygon action, available with Shift+S, that reduces jaggedness without increasing point count while protecting sharp corners, limiting vertex displacement, and correcting area drift.

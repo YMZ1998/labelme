@@ -3528,11 +3528,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.mark_dirty()
 
     def delete_selected_shapes(self) -> None:
-        msg = self.tr("Delete {} shapes? You can restore them with Undo.").format(
-            len(self._canvas_widgets.canvas.selected_shapes)
-        )
-        if not self._confirm_deletion(message=msg, default_delete=True):
-            return
         self.remove_labels(shapes=self._canvas_widgets.canvas.delete_selected())
         self.mark_dirty()
         if self.has_no_shapes():

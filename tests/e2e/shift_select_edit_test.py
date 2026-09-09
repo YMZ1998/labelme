@@ -21,11 +21,13 @@ def test_shift_select_from_draw_mode_switches_to_edit(
     main_win: MainWinFactory,
     tmp_path: Path,
     pause: bool,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     image_path = tmp_path / "image.png"
     Image.fromarray(np.full((80, 80), 127, dtype=np.uint8)).save(image_path)
     win = main_win(file_or_dir=image_path, config_overrides={"auto_save": False})
     show_window_and_wait_for_imagedata(qtbot=qtbot, win=win)
+    assert win._actions.fit_window.shortcut().toString() == "Shift+F"
     shape = Shape(
         label="1",
         shape_type="polygon",
@@ -66,5 +68,16 @@ def test_shift_select_from_draw_mode_switches_to_edit(
     qtbot.mouseRelease(canvas, QtCore.Qt.MouseButton.LeftButton, pos=moved_vertex)
 
     np.testing.assert_allclose(shape.points[0], [14, 14], atol=1)
+
+    canvas.select_shapes(shapes=[shape])
+    monkeypatch.setattr(
+        win,
+        "_confirm_deletion",
+        lambda **_kwargs: pytest.fail("ROI deletion requested confirmation"),
+    )
+    win.delete_selected_shapes()
+    assert shape not in canvas.shapes
+    win.undo_shape_edit()
+    assert len(canvas.shapes) == 1
     win.mark_clean()
     close_or_pause(qtbot=qtbot, widget=win, pause=pause)
