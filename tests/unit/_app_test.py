@@ -123,16 +123,32 @@ def test_default_ring_action_skips_settings_dialog(
 
     class Harness:
         _image = image
+        _window_state = object()
 
         def _activate_ring_cutting(
             self, *, mask: np.ndarray, point_spacing: float
         ) -> None:
             activated.append((mask, point_spacing))
 
+    monkeypatch.setattr(_app, "ring_grayscale", lambda _image: expected_mask)
+    monkeypatch.setattr(_app, "fit_imaging_circle", lambda _gray: (10, 10, 10))
+    monkeypatch.setattr(_app, "estimate_inner_radius", lambda _gray, _circle: 4)
     monkeypatch.setattr(
-        _app, "trace_default_imaging_ring", lambda _image: expected_mask
+        _app,
+        "load_ring_contour_parameters",
+        lambda _settings, **_kwargs: type(
+            "Parameters",
+            (),
+            {"radius_percent": 30, "smoothness": 8, "point_spacing": 36},
+        )(),
     )
-    monkeypatch.setattr(_app, "load_ring_point_spacing", lambda: 36)
+    traced: list[tuple[float, float]] = []
+
+    def trace_with_settings(_gray: np.ndarray, **kwargs: object) -> np.ndarray:
+        traced.append((float(kwargs["inner_radius"]), float(kwargs["smoothness"])))
+        return expected_mask
+
+    monkeypatch.setattr(_app, "trace_imaging_ring", trace_with_settings)
     monkeypatch.setattr(
         _app,
         "RingContourDialog",
@@ -142,6 +158,7 @@ def test_default_ring_action_skips_settings_dialog(
     _app.MainWindow._start_ring_segmentation(Harness())  # ty: ignore[invalid-argument-type]
 
     assert activated == [(expected_mask, 36)]
+    assert traced == [(3.0, 0.8)]
 
 
 @pytest.mark.parametrize(

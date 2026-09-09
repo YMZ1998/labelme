@@ -4,6 +4,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from PySide6 import QtCore
 from PySide6 import QtGui
 from pytestqt.qtbot import QtBot
 
@@ -83,6 +84,27 @@ def test_dialog_defaults_to_lower_density(qtbot: QtBot) -> None:
     assert dialog.point_spacing == load_ring_point_spacing()
     dialog._point_spacing.setValue(24)
     assert dialog.point_spacing == 24
+
+
+def test_dialog_remembers_accepted_parameters(qtbot: QtBot, tmp_path: Path) -> None:
+    image = QtGui.QImage(200, 200, QtGui.QImage.Format.Format_RGB888)
+    image.fill(QtGui.QColor("black"))
+    settings = QtCore.QSettings(
+        str(tmp_path / "ring-settings.ini"), QtCore.QSettings.Format.IniFormat
+    )
+    dialog = RingContourDialog(image=image, parent=None, settings=settings)
+    qtbot.addWidget(dialog)
+    dialog._radius.setValue(37)
+    dialog._smoothness.setValue(12)
+    dialog._point_spacing.setValue(36)
+    dialog.accept()
+
+    restored = RingContourDialog(image=image, parent=None, settings=settings)
+    qtbot.addWidget(restored)
+
+    assert restored._radius.value() == 37
+    assert restored._smoothness.value() == 12
+    assert restored.point_spacing == 36
 
 
 def test_point_spacing_can_be_loaded_from_ini(tmp_path: Path) -> None:

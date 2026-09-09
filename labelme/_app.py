@@ -50,8 +50,10 @@ from ._onnx_segmentation import discover_onnx_model
 from ._polygon_merge import merge_polygons
 from ._polygon_simplification import simplify_polygon
 from ._polygon_smoothing import smooth_polygon
-from ._ring_config import load_ring_point_spacing
-from ._ring_segmentation import trace_default_imaging_ring
+from ._ring_segmentation import estimate_inner_radius
+from ._ring_segmentation import fit_imaging_circle
+from ._ring_segmentation import ring_grayscale
+from ._ring_segmentation import trace_imaging_ring
 from ._roi_tools_config import load_roi_tool_config
 from ._roi_tools_config import merge_roi_shortcuts
 from ._shape import Shape
@@ -82,6 +84,7 @@ from ._widgets import format_shape_label
 from ._widgets._onnx_settings_dialog import OnnxSettingsDialog
 from ._widgets.label_list_widget import LABEL_COLOR_ROLE
 from ._widgets.ring_contour_dialog import RingContourDialog
+from ._widgets.ring_contour_dialog import load_ring_contour_parameters
 
 
 class _ZoomMode(enum.Enum):
@@ -1757,8 +1760,20 @@ class MainWindow(QtWidgets.QMainWindow):
         if self._image.isNull():
             return
         try:
-            mask = trace_default_imaging_ring(
-                _utils.img_qt_to_rgb_arr(self._image)
+            gray = ring_grayscale(_utils.img_qt_to_rgb_arr(self._image))
+            circle = fit_imaging_circle(gray)
+            default_radius_percent = round(
+                100 * estimate_inner_radius(gray, circle) / circle[2]
+            )
+            parameters = load_ring_contour_parameters(
+                self._window_state,
+                default_radius_percent=default_radius_percent,
+            )
+            mask = trace_imaging_ring(
+                gray,
+                circle=circle,
+                inner_radius=circle[2] * parameters.radius_percent / 100,
+                smoothness=parameters.smoothness / 10,
             )
         except ValueError:
             self.show_status_message(
@@ -1766,14 +1781,16 @@ class MainWindow(QtWidgets.QMainWindow):
                 delay=3000,
             )
             return
-        self._activate_ring_cutting(
-            mask=mask, point_spacing=load_ring_point_spacing()
-        )
+        self._activate_ring_cutting(mask=mask, point_spacing=parameters.point_spacing)
 
     def _open_ring_segmentation_settings(self) -> None:
         if self._image.isNull():
             return
-        dialog = RingContourDialog(image=self._image, parent=self)
+        dialog = RingContourDialog(
+            image=self._image,
+            parent=self,
+            settings=self._window_state,
+        )
         if (
             dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted
             or dialog.mask is None

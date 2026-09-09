@@ -9,6 +9,7 @@ import numpy.typing as npt
 from ._shape import MIN_POLYGON_POINT_COUNT
 
 STRAIGHT_ANGLE_DEGREES: Final = 180.0
+MINIMUM_ANCHOR_COUNT: Final = 2
 
 
 def smooth_polygon(
@@ -73,7 +74,73 @@ def smooth_polygon(
             original=original,
             maximum=maximum_displacement,
         )
+    return _redistribute_vertices(result, fixed=weights == 0)
+
+
+def _redistribute_vertices(
+    points: npt.NDArray[np.float64], *, fixed: npt.NDArray[np.bool_]
+) -> npt.NDArray[np.float64]:
+    """Redistribute vertices by arc length without moving protected corners."""
+    result = points.copy()
+    anchors = np.flatnonzero(fixed)
+    if len(anchors) < MINIMUM_ANCHOR_COUNT:
+        return _resample_closed_polygon(points)
+
+    for start, stop in zip(anchors, np.roll(anchors, -1), strict=True):
+        indices = _cyclic_indices(int(start), int(stop), len(points))
+        result[indices] = _resample_polyline(points[indices], len(indices))
     return result
+
+
+def _cyclic_indices(start: int, stop: int, size: int) -> npt.NDArray[np.int_]:
+    if stop <= start:
+        stop += size
+    return np.arange(start, stop + 1) % size
+
+
+def _resample_closed_polygon(
+    points: npt.NDArray[np.float64],
+) -> npt.NDArray[np.float64]:
+    closed = np.vstack((points, points[0]))
+    return _sample_at_distances(
+        closed,
+        np.linspace(0, _polyline_length(closed), len(points), endpoint=False),
+    )
+
+
+def _resample_polyline(
+    points: npt.NDArray[np.float64], count: int
+) -> npt.NDArray[np.float64]:
+    return _sample_at_distances(
+        points,
+        np.linspace(0, _polyline_length(points), count),
+    )
+
+
+def _polyline_length(points: npt.NDArray[np.float64]) -> float:
+    return float(np.linalg.norm(np.diff(points, axis=0), axis=1).sum())
+
+
+def _sample_at_distances(
+    points: npt.NDArray[np.float64], distances: npt.NDArray[np.float64]
+) -> npt.NDArray[np.float64]:
+    segment_lengths = np.linalg.norm(np.diff(points, axis=0), axis=1)
+    cumulative = np.concatenate(([0.0], np.cumsum(segment_lengths)))
+    if cumulative[-1] <= np.finfo(np.float64).eps:
+        return np.repeat(points[:1], len(distances), axis=0)
+
+    segment = np.searchsorted(cumulative, distances, side="right") - 1
+    segment = np.clip(segment, 0, len(segment_lengths) - 1)
+    local = distances - cumulative[segment]
+    ratios = np.divide(
+        local,
+        segment_lengths[segment],
+        out=np.zeros_like(local),
+        where=segment_lengths[segment] > np.finfo(np.float64).eps,
+    )
+    return points[segment] + ratios[:, None] * (
+        points[segment + 1] - points[segment]
+    )
 
 
 def _smoothing_weights(

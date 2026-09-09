@@ -18,6 +18,11 @@ def _area(points: np.ndarray) -> float:
     return float(abs(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1))) / 2)
 
 
+def _spacing_variation(points: np.ndarray) -> float:
+    lengths = np.linalg.norm(points - np.roll(points, 1, axis=0), axis=1)
+    return float(np.std(lengths) / np.mean(lengths))
+
+
 def test_smooth_polygon_reduces_roughness_without_adding_points() -> None:
     points = np.array(
         [[0, 0], [4, -1], [8, 0], [9, 5], [8, 10], [4, 8], [0, 10], [-1, 5]],
@@ -62,3 +67,16 @@ def test_smooth_polygon_limits_vertex_displacement() -> None:
 
     displacement = np.linalg.norm(smoothed - points, axis=1)
     assert displacement.max() <= median_edge * 0.35 + 1e-9
+
+
+def test_smooth_polygon_makes_point_spacing_more_uniform() -> None:
+    angles = np.array(
+        [0, 0.03, 0.12, 0.35, 0.7, 1.2, 1.8, 2.7, 3.8, 4.9, 5.7],
+        dtype=np.float64,
+    )
+    points = np.column_stack((np.cos(angles) * 20, np.sin(angles) * 20))
+
+    smoothed = smooth_polygon(points)
+
+    assert _spacing_variation(smoothed) < _spacing_variation(points) * 0.7
+    assert len(smoothed) == len(points)
