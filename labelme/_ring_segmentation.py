@@ -298,6 +298,11 @@ def _resample_cut_contour(
         labels = frozenset(
             (label_at_anchor[start_index], label_at_anchor[end_index])
         )
+        start_label = label_at_anchor[start_index]
+        end_label = label_at_anchor[end_index]
+        part = part.copy()
+        part[0] = controls[start_label]
+        part[-1] = controls[end_label]
         if labels in side_pairs:
             sampled = np.linspace(part[0], part[-1], 3)
         else:
@@ -313,67 +318,40 @@ def cut_ring(
     major_arc: bool = True,
     point_spacing: float = 12.0,
 ) -> npt.NDArray[np.float64]:
-    """Cut the segmented mask using the two radial sides selected by four clicks."""
+    """Cut the segmented mask using two arbitrarily angled four-point sides."""
     points = np.asarray(points, dtype=np.float64)
     if points.shape != (4, 2) or not np.isfinite(points).all():
         raise ValueError("Expected four points")
     outer_start, inner_start, inner_end, outer_end = points
-    first, second = outer_start - inner_start, outer_end - inner_end
-    widths = np.linalg.norm([first, second], axis=1)
+    widths = np.linalg.norm(
+        [outer_start - inner_start, outer_end - inner_end], axis=1
+    )
     epsilon = 1e-6
     if np.any(widths < epsilon):
         raise ValueError("Zero-width side")
-    axes = np.column_stack((first / widths[0], -second / widths[1]))
-    minimum_sine = 1e-3
-    if abs(np.linalg.det(axes)) < minimum_sine:
-        region = _cut_ring_between_parallel_sides(
-            mask=mask,
-            controls=points,
-            major_arc=major_arc,
-        )
-        return _ring_region_to_polygon(
-            region=region,
-            controls=points,
-            point_spacing=point_spacing,
-        )
-    distances = np.linalg.solve(axes, inner_end - inner_start)
-    if np.any(distances >= -epsilon):
-        raise ValueError("Reversed inner/outer points")
-    center = inner_start + distances[0] * axes[:, 0]
-    hole = ndimage.binary_fill_holes(mask) & ~mask
-    x, y = np.rint(center).astype(int)
-    if not (0 <= y < mask.shape[0] and 0 <= x < mask.shape[1] and hole[y, x]):
-        raise ValueError("The radial sides must meet inside the ring hole")
-    start = math.atan2(*(outer_start - center)[::-1])
-    end = math.atan2(*(outer_end - center)[::-1])
-    sweep = (end - start + math.pi) % (2 * math.pi) - math.pi
-    if major_arc:
-        sweep -= math.copysign(2 * math.pi, sweep)
-    yy, xx = np.indices(mask.shape)
-    angle = np.arctan2(yy - center[1], xx - center[0])
-    progress = ((angle - start) * np.sign(sweep)) % (2 * math.pi)
-    region = mask & (progress <= abs(sweep))
-    if not region.any():
-        raise ValueError("Empty cut")
-    labels, count = ndimage.label(region)
-    if count != 1:
-        raise ValueError("Cut is disconnected; adjust threshold or radial sides")
+    region = _cut_ring_between_sides(
+        mask=mask,
+        controls=points,
+        major_arc=major_arc,
+    )
     return _ring_region_to_polygon(
-        region=labels != 0,
+        region=region,
         controls=points,
         point_spacing=point_spacing,
     )
 
 
-def _cut_ring_between_parallel_sides(
+def _cut_ring_between_sides(
     *,
     mask: npt.NDArray[np.bool_],
     controls: npt.NDArray[np.float64],
     major_arc: bool,
 ) -> npt.NDArray[np.bool_]:
-    """Split a ring along arbitrary parallel sides and select one component."""
+    """Split a ring along two independently angled sides and select one component."""
     separator = np.zeros(mask.shape, dtype=np.bool_)
-    extension = 3.0
+    # Mouse clicks do not land exactly on the extracted subpixel contours. Extend
+    # both ends enough to cross the boundary despite normal click and fit errors.
+    extension = max(3.0, math.hypot(*mask.shape) * 0.02)
     for outer, inner in ((controls[0], controls[1]), (controls[3], controls[2])):
         direction = outer - inner
         direction /= np.linalg.norm(direction)

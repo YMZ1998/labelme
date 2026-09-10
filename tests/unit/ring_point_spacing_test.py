@@ -49,17 +49,17 @@ def test_cutting_sides_each_have_only_three_points() -> None:
     first_side = polygon[
         (polygon[:, 0] >= 120)
         & (polygon[:, 0] <= 180)
-        & (np.abs(polygon[:, 1] - 100) <= 0.5)
+        & np.isclose(polygon[:, 1], 100)
     ]
     second_side = polygon[
         (polygon[:, 1] >= 119.5)
         & (polygon[:, 1] <= 180.5)
-        & (np.abs(polygon[:, 0] - 100) <= 0.5)
+        & np.isclose(polygon[:, 0], 100)
     ]
     assert len(first_side) == 3
     assert len(second_side) == 3
-    np.testing.assert_allclose(first_side[1], [150, 100])
-    np.testing.assert_allclose(second_side[-1], [100, 150])
+    assert np.any(np.all(np.isclose(first_side, [150, 100]), axis=1))
+    assert np.any(np.all(np.isclose(second_side, [100, 150]), axis=1))
 
 
 def test_parallel_cutting_sides_have_no_angle_restriction() -> None:
@@ -74,6 +74,39 @@ def test_parallel_cutting_sides_have_no_angle_restriction() -> None:
     assert len(first_side) >= 3
     assert len(other_side) >= 3
     assert np.mean(first_side[:, 0]) != pytest.approx(np.mean(other_side[:, 0]))
+
+
+def test_independently_angled_sides_do_not_need_to_meet_in_hole() -> None:
+    yy, xx = np.indices((201, 201))
+    radius = np.hypot(xx - 100, yy - 100)
+    mask = (radius >= 20) & (radius <= 80)
+    angles_and_radii = [(270, 80), (250, 20), (30, 20), (50, 80)]
+    controls = np.array(
+        [
+            [
+                100 + radius * np.cos(np.deg2rad(angle)),
+                100 + radius * np.sin(np.deg2rad(angle)),
+            ]
+            for angle, radius in angles_and_radii
+        ]
+    )
+
+    polygon = cut_ring(mask, controls, major_arc=True)
+
+    for control in controls:
+        assert np.min(np.linalg.norm(polygon - control, axis=1)) < 1e-6
+
+
+def test_nearly_collinear_sides_tolerate_points_inside_boundaries() -> None:
+    yy, xx = np.indices((401, 401))
+    radius = np.hypot(xx - 200, yy - 200)
+    mask = (radius >= 70) & (radius <= 180)
+    controls = [[196, 31], [199, 139], [205, 261], [214, 369]]
+
+    polygon = cut_ring(mask, controls, major_arc=True, point_spacing=20)
+
+    assert len(polygon) >= 4
+    assert np.isfinite(polygon).all()
 
 
 def test_dialog_defaults_to_lower_density(qtbot: QtBot) -> None:
