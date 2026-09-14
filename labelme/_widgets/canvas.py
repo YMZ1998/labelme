@@ -976,6 +976,9 @@ class Canvas(QtWidgets.QWidget):
         self, *, pos: QPointF, event: QtGui.QMouseEvent
     ) -> None:
         is_shift_pressed = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+        is_control_pressed = bool(
+            event.modifiers() & Qt.KeyboardModifier.ControlModifier
+        )
         if self._is_vertex_selected():
             self._drag_hovered_vertex(pos=pos, is_shift_pressed=is_shift_pressed)
             return
@@ -983,6 +986,8 @@ class Canvas(QtWidgets.QWidget):
             self._drag_hovered_rotation_point(pos=pos)
             return
         if not self.selected_shapes:
+            return
+        if not is_control_pressed:
             return
         self._drag_selected_shapes(pos=pos)
 
@@ -1112,7 +1117,7 @@ class Canvas(QtWidgets.QWidget):
             )
             status_messages.extend(
                 [
-                    self.tr("Click & drag to move shape"),
+                    self.tr("Hold Ctrl + drag to move shape"),
                     self.tr("Right-click & drag to copy shape"),
                 ]
             )

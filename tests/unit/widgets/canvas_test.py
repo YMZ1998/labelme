@@ -63,6 +63,21 @@ def _wheel_event(
     )
 
 
+def _left_drag_event(
+    *,
+    pos: QPointF,
+    modifiers: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier,
+) -> QtGui.QMouseEvent:
+    return QtGui.QMouseEvent(
+        QtCore.QEvent.Type.MouseMove,
+        pos,
+        pos,
+        Qt.MouseButton.NoButton,
+        Qt.MouseButton.LeftButton,
+        modifiers,
+    )
+
+
 @pytest.mark.gui
 @pytest.mark.parametrize(("delta_y", "expected"), [(120, -1), (-120, 1)])
 def test_plain_wheel_requests_image_navigation(
@@ -147,6 +162,42 @@ def test_arrow_key_still_moves_selected_shape(*, canvas: Canvas) -> None:
 
     assert requests == []
     np.testing.assert_allclose(shape.points, [(45, 20), (65, 30)])
+
+
+@pytest.mark.gui
+@pytest.mark.parametrize(
+    ("modifiers", "should_drag"),
+    [
+        pytest.param(Qt.KeyboardModifier.NoModifier, False, id="without-control"),
+        pytest.param(Qt.KeyboardModifier.ControlModifier, True, id="with-control"),
+    ],
+)
+def test_dragging_shape_body_requires_control(
+    *,
+    canvas: Canvas,
+    monkeypatch: pytest.MonkeyPatch,
+    modifiers: Qt.KeyboardModifier,
+    should_drag: bool,
+) -> None:
+    shape = Shape(
+        shape_type="rectangle",
+        points=np.array([(40, 20), (60, 30)], dtype=np.float64),
+        closed=True,
+    )
+    canvas.selected_shapes = [shape]
+    drag_selected_shapes = Mock()
+    monkeypatch.setattr(canvas, "_drag_selected_shapes", drag_selected_shapes)
+    pos = QPointF(55, 30)
+
+    canvas._continue_left_button_drag(
+        pos=pos,
+        event=_left_drag_event(pos=pos, modifiers=modifiers),
+    )
+
+    if should_drag:
+        drag_selected_shapes.assert_called_once_with(pos=pos)
+    else:
+        drag_selected_shapes.assert_not_called()
 
 
 @pytest.mark.gui

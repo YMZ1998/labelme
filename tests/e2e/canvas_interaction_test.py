@@ -70,6 +70,7 @@ def _hover_and_drag(
     canvas: Canvas,
     start_image_pos: QPointF,
     end_image_pos: QPointF,
+    modifier: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier,
 ) -> None:
     start = image_to_widget_pos(canvas=canvas, image_pos=start_image_pos)
     end = image_to_widget_pos(canvas=canvas, image_pos=end_image_pos)
@@ -81,6 +82,7 @@ def _hover_and_drag(
         button=Qt.MouseButton.LeftButton,
         start=start,
         end=end,
+        modifier=modifier,
     )
 
 
@@ -140,7 +142,7 @@ def _save_and_check(
 
 
 @pytest.mark.gui
-def test_move_shape_by_drag(
+def test_move_shape_by_ctrl_drag(
     *,
     qtbot: QtBot,
     annotated_win: MainWindow,
@@ -159,6 +161,18 @@ def test_move_shape_by_drag(
         canvas=canvas,
         start_image_pos=center,
         end_image_pos=center + offset,
+    )
+
+    for orig, unmoved in zip(original_points, shape.points):
+        assert float(unmoved[0]) == orig.x()
+        assert float(unmoved[1]) == orig.y()
+
+    _hover_and_drag(
+        qtbot=qtbot,
+        canvas=canvas,
+        start_image_pos=center,
+        end_image_pos=center + offset,
+        modifier=Qt.KeyboardModifier.ControlModifier,
     )
 
     for orig, moved in zip(original_points, shape.points):
