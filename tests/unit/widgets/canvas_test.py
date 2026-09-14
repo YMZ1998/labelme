@@ -78,6 +78,21 @@ def _left_drag_event(
     )
 
 
+def _left_press_event(
+    *,
+    pos: QPointF,
+    modifiers: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier,
+) -> QtGui.QMouseEvent:
+    return QtGui.QMouseEvent(
+        QtCore.QEvent.Type.MouseButtonPress,
+        pos,
+        pos,
+        Qt.MouseButton.LeftButton,
+        Qt.MouseButton.LeftButton,
+        modifiers,
+    )
+
+
 @pytest.mark.gui
 @pytest.mark.parametrize(("delta_y", "expected"), [(120, -1), (-120, 1)])
 def test_plain_wheel_requests_image_navigation(
@@ -198,6 +213,42 @@ def test_dragging_shape_body_requires_control(
         drag_selected_shapes.assert_called_once_with(pos=pos)
     else:
         drag_selected_shapes.assert_not_called()
+
+
+@pytest.mark.gui
+def test_dragging_vertex_uses_press_target_after_hover_changes(*, canvas: Canvas) -> None:
+    shape = Shape(
+        shape_type="polygon",
+        points=np.array([(20, 10), (60, 10), (60, 40), (20, 40)], dtype=np.float64),
+        closed=True,
+    )
+    canvas.load_shapes(shapes=[shape])
+    canvas.set_editing()
+    press_pos = QPointF(20, 10)
+    drag_pos = QPointF(35, 25)
+    canvas._set_highlight(
+        hovered_shape=shape,
+        hovered_edge=None,
+        hovered_vertex=0,
+        hovered_rotation=None,
+    )
+
+    canvas._press_left_while_editing(
+        pos=press_pos,
+        event=_left_press_event(pos=press_pos),
+    )
+    canvas._set_highlight(
+        hovered_shape=None,
+        hovered_edge=None,
+        hovered_vertex=None,
+        hovered_rotation=None,
+    )
+    canvas._continue_left_button_drag(
+        pos=drag_pos,
+        event=_left_drag_event(pos=drag_pos),
+    )
+
+    np.testing.assert_allclose(shape.points[0], (35, 25))
 
 
 @pytest.mark.gui

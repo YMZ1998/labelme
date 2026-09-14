@@ -91,6 +91,13 @@ class _DraftShape:
         )
 
 
+@dataclasses.dataclass(frozen=True)
+class _ActiveDragTarget:
+    shape: Shape
+    vertex_index: int | None = None
+    rotation_index: int | None = None
+
+
 def _draft_to_shape(draft: _DraftShape, /) -> Shape:
     return Shape(
         shape_type=draft.shape_type,
@@ -220,6 +227,7 @@ class Canvas(QtWidgets.QWidget):
     _prev_point: QPointF
     _prev_move_point: QPointF
     _drag_anchor: tuple[QPointF, QRectF]
+    _active_drag_target: _ActiveDragTarget | None
     _rotation_center: np.ndarray
     _rotation_initial_angle: float
     _rotation_original_points: np.ndarray
@@ -282,6 +290,7 @@ class Canvas(QtWidgets.QWidget):
         self._prev_point = QPointF()
         self._prev_move_point = QPointF()
         self._drag_anchor = (QPointF(), QRectF())
+        self._active_drag_target = None
         self._rotation_center = np.zeros(2)
         self._rotation_initial_angle = 0.0
         self._rotation_original_points = np.empty((0, 2))
@@ -979,6 +988,19 @@ class Canvas(QtWidgets.QWidget):
         is_control_pressed = bool(
             event.modifiers() & Qt.KeyboardModifier.ControlModifier
         )
+        if self._active_drag_target is not None:
+            target = self._active_drag_target
+            if target.vertex_index is not None:
+                self._drag_vertex(
+                    shape=target.shape,
+                    vertex_index=target.vertex_index,
+                    pos=pos,
+                    is_shift_pressed=is_shift_pressed,
+                )
+                return
+            if target.rotation_index is not None:
+                self._drag_rotation_point(shape=target.shape, pos=pos)
+                return
         if self._is_vertex_selected():
             self._drag_hovered_vertex(pos=pos, is_shift_pressed=is_shift_pressed)
             return
@@ -994,9 +1016,24 @@ class Canvas(QtWidgets.QWidget):
     def _drag_hovered_vertex(self, *, pos: QPointF, is_shift_pressed: bool) -> None:
         assert self._hovered_vertex is not None
         assert self.hovered_shape is not None
-        self._bounded_move_vertex(
+        self._drag_vertex(
             shape=self.hovered_shape,
             vertex_index=self._hovered_vertex,
+            pos=pos,
+            is_shift_pressed=is_shift_pressed,
+        )
+
+    def _drag_vertex(
+        self,
+        *,
+        shape: Shape,
+        vertex_index: int,
+        pos: QPointF,
+        is_shift_pressed: bool,
+    ) -> None:
+        self._bounded_move_vertex(
+            shape=shape,
+            vertex_index=vertex_index,
             pos=pos,
             is_shift_pressed=is_shift_pressed,
         )
@@ -1005,6 +1042,9 @@ class Canvas(QtWidgets.QWidget):
 
     def _drag_hovered_rotation_point(self, *, pos: QPointF) -> None:
         assert self.hovered_shape is not None
+        self._drag_rotation_point(shape=self.hovered_shape, pos=pos)
+
+    def _drag_rotation_point(self, *, shape: Shape, pos: QPointF) -> None:
         assert len(self._rotation_original_points) > 0, (
             "_capture_rotation_anchors must be called before dragging"
         )
@@ -1012,7 +1052,7 @@ class Canvas(QtWidgets.QWidget):
             start=self._rotation_center, end=(pos.x(), pos.y())
         )
         _shape.rotate(
-            shape=self.hovered_shape,
+            shape=shape,
             center=self._rotation_center,
             angle=current_angle - self._rotation_initial_angle,
             source_points=self._rotation_original_points,
@@ -1425,8 +1465,25 @@ class Canvas(QtWidgets.QWidget):
             pos,
             multiple_selection_mode=modifiers == Qt.KeyboardModifier.ControlModifier,
         )
+        self._capture_active_drag_target()
         self._prev_point = pos
         self.update()
+
+    def _capture_active_drag_target(self) -> None:
+        self._active_drag_target = None
+        if self.hovered_shape is None:
+            return
+        if self._hovered_vertex is not None:
+            self._active_drag_target = _ActiveDragTarget(
+                shape=self.hovered_shape,
+                vertex_index=self._hovered_vertex,
+            )
+            return
+        if self._hovered_rotation is not None:
+            self._active_drag_target = _ActiveDragTarget(
+                shape=self.hovered_shape,
+                rotation_index=self._hovered_rotation,
+            )
 
     def _toggle_selected_vertex(self, *, shape: Shape, index: int) -> None:
         if self._selected_vertices_shape is not shape:
@@ -1481,6 +1538,7 @@ class Canvas(QtWidgets.QWidget):
     def mouseReleaseEvent(self, a0: QtGui.QMouseEvent, /) -> None:
         self._dispatch_pointer_release(event=a0)
         self._commit_pending_shape_move()
+        self._active_drag_target = None
         self._update_status(extra_messages=None)
 
     def _dispatch_pointer_release(self, *, event: QtGui.QMouseEvent) -> None:
@@ -1558,9 +1616,12 @@ class Canvas(QtWidgets.QWidget):
         return None
 
     def _commit_pending_shape_move(self) -> None:
+        active_drag_shape = (
+            None if self._active_drag_target is None else self._active_drag_target.shape
+        )
         moved = _pick_pending_moved_shape(
             is_moving_shape=self._is_moving_shape,
-            hovered_shape=self.hovered_shape,
+            hovered_shape=self.hovered_shape or active_drag_shape,
             shapes=self.shapes,
         )
         if moved is None:
