@@ -109,6 +109,19 @@ def test_nearly_collinear_sides_tolerate_points_inside_boundaries() -> None:
     assert np.isfinite(polygon).all()
 
 
+def test_cutting_sides_reach_outer_boundary_when_outer_controls_are_inside_ring() -> None:
+    yy, xx = np.indices((201, 201))
+    radius = np.hypot(xx - 100, yy - 100)
+    mask = (radius >= 40) & (radius <= 90)
+    controls = [[155, 100], [135, 100], [100, 135], [100, 155]]
+
+    polygon = cut_ring(mask, controls, major_arc=True)
+
+    assert len(polygon) >= 4
+    for control in controls:
+        assert np.min(np.linalg.norm(polygon - control, axis=1)) < 1e-6
+
+
 def test_dialog_defaults_to_lower_density(qtbot: QtBot) -> None:
     image = QtGui.QImage(200, 200, QtGui.QImage.Format.Format_RGB888)
     image.fill(QtGui.QColor("black"))

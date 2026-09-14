@@ -349,9 +349,10 @@ def _cut_ring_between_sides(
 ) -> npt.NDArray[np.bool_]:
     """Split a ring along two independently angled sides and select one component."""
     separator = np.zeros(mask.shape, dtype=np.bool_)
-    # Mouse clicks do not land exactly on the extracted subpixel contours. Extend
-    # both ends enough to cross the boundary despite normal click and fit errors.
-    extension = max(3.0, math.hypot(*mask.shape) * 0.02)
+    # Mouse clicks can land well inside the extracted contours. Extending through
+    # the canvas guarantees each separator reaches both ring boundaries instead
+    # of leaving the annulus connected around a truncated cutting side.
+    extension = math.hypot(*mask.shape)
     for outer, inner in ((controls[0], controls[1]), (controls[3], controls[2])):
         direction = outer - inner
         direction /= np.linalg.norm(direction)
