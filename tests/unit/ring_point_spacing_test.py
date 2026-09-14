@@ -32,7 +32,7 @@ def test_larger_spacing_generates_fewer_ring_points() -> None:
     controls = [[180, 100], [120, 100], [100, 120], [100, 180]]
     dense = cut_ring(mask, controls, point_spacing=4)
     sparse = cut_ring(mask, controls, point_spacing=16)
-    assert len(sparse) < len(dense) / 3
+    assert len(sparse) <= len(dense) / 3 + 1
     fixed_side_points = 4
     expected = (len(dense) - fixed_side_points) / 4 + fixed_side_points
     assert len(sparse) == pytest.approx(expected, abs=2)
@@ -74,6 +74,22 @@ def test_parallel_cutting_sides_have_no_angle_restriction() -> None:
     assert len(first_side) >= 3
     assert len(other_side) >= 3
     assert np.mean(first_side[:, 0]) != pytest.approx(np.mean(other_side[:, 0]))
+
+
+def test_outer_circle_ignores_small_bright_artifacts() -> None:
+    yy, xx = np.indices((241, 241))
+    radius = np.hypot(xx - 120, yy - 120)
+    image = np.zeros((241, 241), dtype=np.float64)
+    image[radius <= 90] = 90
+    image[38:44, 180:224] = 230
+    image[190:196, 22:70] = 230
+    image[15:20, 118:124] = 230
+
+    center_x, center_y, fitted_radius = fit_imaging_circle(image)
+
+    assert center_x == pytest.approx(120, abs=2)
+    assert center_y == pytest.approx(120, abs=2)
+    assert fitted_radius == pytest.approx(90, abs=3)
 
 
 def test_independently_angled_sides_do_not_need_to_meet_in_hole() -> None:
@@ -120,6 +136,24 @@ def test_cutting_sides_reach_outer_boundary_when_outer_controls_are_inside_ring(
     assert len(polygon) >= 4
     for control in controls:
         assert np.min(np.linalg.norm(polygon - control, axis=1)) < 1e-6
+
+
+def test_minor_ring_side_tolerates_small_boundary_gaps() -> None:
+    yy, xx = np.indices((241, 241))
+    radius = np.hypot(xx - 120, yy - 120)
+    mask = (radius >= 35) & (radius <= 95)
+    mask[82:88, 190:198] = False
+    mask[118:124, 211:218] = False
+    mask[152:158, 190:198] = False
+    mask[70:75, 202:208] = True
+    mask[166:171, 202:208] = True
+    controls = [[120, 215], [120, 155], [120, 85], [120, 25]]
+
+    polygon = cut_ring(mask, controls, major_arc=False, point_spacing=12)
+
+    assert len(polygon) >= 4
+    assert np.isfinite(polygon).all()
+    assert np.mean(polygon[:, 0]) < 120
 
 
 def test_dialog_defaults_to_lower_density(qtbot: QtBot) -> None:

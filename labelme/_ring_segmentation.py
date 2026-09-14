@@ -17,7 +17,10 @@ def fit_imaging_circle(gray: npt.NDArray[np.float64]) -> tuple[float, float, flo
     level = background + max(
         1.0, (float(filters.threshold_otsu(gray)) - background) * 0.35
     )
-    component = _largest_component(gray > level)
+    foreground = ndimage.binary_opening(gray > level, iterations=2)
+    if not foreground.any():
+        foreground = gray > level
+    component = _largest_component(foreground)
     solid = ndimage.binary_fill_holes(component)
     contour = max(mask_contours(solid), key=len)
     height, width = gray.shape
@@ -166,7 +169,8 @@ def trace_imaging_ring(
     local_inner = np.interp(
         angles, np.linspace(0, 2 * math.pi, len(inner) + 1), np.r_[inner, inner[0]]
     )
-    return (distance <= circle[2]) & (distance >= local_inner)
+    ring = (distance <= circle[2]) & (distance >= local_inner)
+    return ndimage.binary_closing(ring, iterations=1)
 
 
 def ring_grayscale(image: npt.NDArray[np.uint8]) -> npt.NDArray[np.float64]:
@@ -329,6 +333,7 @@ def cut_ring(
     epsilon = 1e-6
     if np.any(widths < epsilon):
         raise ValueError("Zero-width side")
+    mask = _clean_ring_mask(mask)
     region = _cut_ring_between_sides(
         mask=mask,
         controls=points,
@@ -339,6 +344,21 @@ def cut_ring(
         controls=points,
         point_spacing=point_spacing,
     )
+
+
+def _clean_ring_mask(mask: npt.NDArray[np.bool_]) -> npt.NDArray[np.bool_]:
+    """Keep the annulus body connected before choosing a cut side."""
+    mask = np.asarray(mask, dtype=np.bool_)
+    if not mask.any():
+        raise ValueError("Ring mask is empty")
+    cleaned = ndimage.binary_closing(mask, iterations=2)
+    labels, count = ndimage.label(cleaned)
+    if count == 0:
+        raise ValueError("Ring mask is empty")
+    sizes = np.bincount(labels.ravel())
+    sizes[0] = 0
+    body = labels == sizes.argmax()
+    return ndimage.binary_fill_holes(body) & ndimage.binary_dilation(mask, iterations=2)
 
 
 def _cut_ring_between_sides(
@@ -387,6 +407,9 @@ def _ring_region_to_polygon(
     point_spacing: float,
 ) -> npt.NDArray[np.float64]:
     contours = mask_contours(region)
+    if len(contours) != 1:
+        region = _largest_component(ndimage.binary_closing(region, iterations=2))
+        contours = mask_contours(region)
     if len(contours) != 1:
         raise ValueError("Cut must open the ring hole")
     if not np.isfinite(point_spacing) or point_spacing <= 0:
