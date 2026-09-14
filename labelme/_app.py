@@ -100,6 +100,17 @@ _AI_CREATE_MODES: Final[tuple[str, ...]] = (
 )
 POLYGONS_TO_MERGE: Final[int] = 2
 
+
+def _should_show_label_popup(
+    *, display_label_popup: bool, create_mode: str, strip_enabled: bool
+) -> bool:
+    if create_mode == "annular_sector":
+        return False
+    if create_mode == "linestrip" and strip_enabled:
+        return False
+    return display_label_popup
+
+
 # Keys of the Window State store, shared by the restore, reset, and close paths.
 WINDOW_SIZE_KEY: Final[str] = "window/size"
 WINDOW_POSITION_KEY: Final[str] = "window/position"
@@ -2329,10 +2340,15 @@ class MainWindow(QtWidgets.QMainWindow):
     # Callback functions:
 
     def _on_new_shape(self) -> None:
+        canvas = self._canvas_widgets.canvas
         items = self._docks.unique_label_list.selectedItems()
         selected_text = items[0].data(Qt.ItemDataRole.UserRole) if items else None
         text = self._default_roi_label() or selected_text
-        if self._config["display_label_popup"]:
+        if _should_show_label_popup(
+            display_label_popup=self._config["display_label_popup"],
+            create_mode=canvas.create_mode,
+            strip_enabled=canvas.is_strip_expansion_enabled,
+        ):
             entry = self._label_dialog.popup(text=text)
         else:
             candidates = [

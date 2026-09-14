@@ -113,6 +113,34 @@ def test_default_roi_label_depends_on_active_tool(
     assert _app.MainWindow._default_roi_label(Harness()) == expected
 
 
+@pytest.mark.parametrize(
+    ("display_label_popup", "create_mode", "strip_enabled", "expected"),
+    [
+        (True, "annular_sector", False, False),
+        (True, "linestrip", True, False),
+        (True, "linestrip", False, True),
+        (True, "polygon", False, True),
+        (False, "polygon", False, False),
+    ],
+    ids=["ring", "expanded-strip", "plain-linestrip", "polygon", "global-off"],
+)
+def test_label_popup_is_skipped_only_for_roi_tools(
+    *,
+    display_label_popup: bool,
+    create_mode: str,
+    strip_enabled: bool,
+    expected: bool,
+) -> None:
+    assert (
+        _app._should_show_label_popup(
+            display_label_popup=display_label_popup,
+            create_mode=create_mode,
+            strip_enabled=strip_enabled,
+        )
+        is expected
+    )
+
+
 def test_default_ring_action_skips_settings_dialog(
     *, monkeypatch: pytest.MonkeyPatch
 ) -> None:
