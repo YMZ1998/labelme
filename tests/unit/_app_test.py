@@ -219,6 +219,12 @@ def test_detect_outer_circle_adds_circle_shape(
     np.testing.assert_allclose(shape.points, [[10, 11], [14, 11]])
 
 
+def test_detect_circle_default_shortcut_is_c() -> None:
+    config = _app._config.load_config(config_file=None, config_overrides={})
+
+    assert config["shortcuts"]["detect_circle"] == "C"
+
+
 @pytest.mark.parametrize(
     "image_path, file_index, file_count, dirty, expected",
     [

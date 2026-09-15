@@ -643,6 +643,7 @@ class MainWindow(QtWidgets.QMainWindow):
         detect_circle = action(
             text=self.tr("Detect Outer Circle"),
             slot=self._detect_outer_circle,
+            shortcut=shortcuts["detect_circle"],
             icon="phosphor/circle.svg",
             tip=self.tr("Detect and add the outer imaging circle"),
             enabled=False,

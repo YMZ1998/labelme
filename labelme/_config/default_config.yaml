@@ -118,6 +118,7 @@ shortcuts:
   create_rectangle: Ctrl+R
   create_oriented_rectangle:
   create_circle:
+  detect_circle: C
   create_annular_sector:
   create_line:
   create_point:
