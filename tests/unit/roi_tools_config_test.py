@@ -10,14 +10,14 @@ from labelme._roi_tools_config import merge_roi_shortcuts
 def test_load_roi_tool_config_from_ini(tmp_path: Path) -> None:
     config_file = tmp_path / "config.ini"
     config_file.write_text(
-        "[labels]\npolygon = a\nstrip = b\nring = c\n"
+            "[labels]\npolygon = a\nstrip = b\nring = c\ncircle = d\n"
         "[shortcuts]\ncreate_polygon = P\ncreate_strip = S\ncreate_ring = R\n",
         encoding="utf-8",
     )
 
     config = load_roi_tool_config(config_file=config_file)
 
-    assert config == RoiToolConfig("a", "b", "c", "P", "S", "R")
+    assert config == RoiToolConfig("a", "b", "c", "d", "P", "S", "R")
 
 
 def test_roi_shortcuts_replace_conflicting_builtin_shortcuts() -> None:

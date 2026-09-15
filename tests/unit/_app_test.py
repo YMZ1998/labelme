@@ -94,6 +94,7 @@ def test_is_valid_label(
         ("polygon", False, "1"),
         ("linestrip", True, "2"),
         ("annular_sector", False, "3"),
+        ("circle", False, "3"),
         ("rectangle", False, None),
     ],
 )
@@ -187,6 +188,35 @@ def test_default_ring_action_skips_settings_dialog(
 
     assert activated == [(expected_mask, 36)]
     assert traced == [(3.0, 0.8)]
+
+
+def test_detect_outer_circle_adds_circle_shape(
+    *, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    image = QtGui.QImage(20, 20, QtGui.QImage.Format.Format_RGB888)
+    image.fill(0)
+    detected: list[list[Shape]] = []
+
+    class Harness:
+        _image = image
+        _roi_tool_config = RoiToolConfig()
+
+        def _insert_shapes(self, shapes: list[Shape]) -> None:
+            detected.append(shapes)
+
+        def show_status_message(self, *_args: object, **_kwargs: object) -> None:
+            pytest.fail("outer circle detection unexpectedly failed")
+
+    monkeypatch.setattr(_app, "ring_grayscale", lambda _image: np.zeros((20, 20)))
+    monkeypatch.setattr(_app, "fit_imaging_circle", lambda _gray: (10.0, 11.0, 4.0))
+
+    _app.MainWindow._detect_outer_circle(Harness())  # ty: ignore[invalid-argument-type]
+
+    assert len(detected) == 1
+    shape = detected[0][0]
+    assert shape.label == "3"
+    assert shape.shape_type == "circle"
+    np.testing.assert_allclose(shape.points, [[10, 11], [14, 11]])
 
 
 @pytest.mark.parametrize(

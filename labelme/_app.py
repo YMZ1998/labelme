@@ -178,6 +178,7 @@ class _Actions(NamedTuple):
     create_rectangle_mode: QtGui.QAction
     create_oriented_rectangle_mode: QtGui.QAction
     create_circle_mode: QtGui.QAction
+    detect_circle: QtGui.QAction
     create_annular_sector_mode: QtGui.QAction
     create_annular_sector_settings_mode: QtGui.QAction
     create_line_mode: QtGui.QAction
@@ -639,6 +640,13 @@ class MainWindow(QtWidgets.QMainWindow):
             tip=self.tr("Start drawing circles"),
             enabled=False,
         )
+        detect_circle = action(
+            text=self.tr("Detect Outer Circle"),
+            slot=self._detect_outer_circle,
+            icon="phosphor/circle.svg",
+            tip=self.tr("Detect and add the outer imaging circle"),
+            enabled=False,
+        )
         create_annular_sector_mode = action(
             text=self.tr("Ring"),
             slot=self._start_ring_segmentation,
@@ -874,6 +882,7 @@ class MainWindow(QtWidgets.QMainWindow):
             ("rectangle", create_rectangle_mode),
             ("oriented_rectangle", create_oriented_rectangle_mode),
             ("circle", create_circle_mode),
+            ("circle_detection", detect_circle),
             ("annular_sector", create_annular_sector_mode),
             ("annular_sector_settings", create_annular_sector_settings_mode),
             ("point", create_point_mode),
@@ -899,6 +908,7 @@ class MainWindow(QtWidgets.QMainWindow):
             create_rectangle_mode,
             create_oriented_rectangle_mode,
             create_circle_mode,
+            detect_circle,
             create_annular_sector_mode,
             create_annular_sector_settings_mode,
             create_line_mode,
@@ -971,6 +981,7 @@ class MainWindow(QtWidgets.QMainWindow):
             create_rectangle_mode=create_rectangle_mode,
             create_oriented_rectangle_mode=create_oriented_rectangle_mode,
             create_circle_mode=create_circle_mode,
+            detect_circle=detect_circle,
             create_annular_sector_mode=create_annular_sector_mode,
             create_annular_sector_settings_mode=create_annular_sector_settings_mode,
             create_line_mode=create_line_mode,
@@ -1794,6 +1805,36 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         self._activate_ring_cutting(mask=mask, point_spacing=parameters.point_spacing)
 
+    def _detect_outer_circle(self) -> None:
+        if self._image.isNull():
+            return
+        try:
+            gray = ring_grayscale(_utils.img_qt_to_rgb_arr(self._image))
+            center_x, center_y, radius = fit_imaging_circle(gray)
+        except ValueError:
+            self.show_status_message(
+                self.tr("Could not detect the outer imaging circle."),
+                delay=3000,
+            )
+            return
+
+        self._insert_shapes(
+            [
+                Shape(
+                    label=self._roi_tool_config.circle_label,
+                    shape_type="circle",
+                    points=np.array(
+                        [
+                            [center_x, center_y],
+                            [center_x + radius, center_y],
+                        ],
+                        dtype=np.float64,
+                    ),
+                    closed=True,
+                )
+            ]
+        )
+
     def _open_ring_segmentation_settings(self) -> None:
         if self._image.isNull():
             return
@@ -2405,6 +2446,8 @@ class MainWindow(QtWidgets.QMainWindow):
         canvas = self._canvas_widgets.canvas
         if canvas.create_mode == "annular_sector":
             return self._roi_tool_config.ring_label
+        if canvas.create_mode == "circle":
+            return self._roi_tool_config.circle_label
         if canvas.create_mode == "linestrip" and canvas.is_strip_expansion_enabled:
             return self._roi_tool_config.strip_label
         if canvas.create_mode == "polygon":
@@ -2763,7 +2806,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._canvas_widgets.canvas.setEnabled(True)
         # Zoom changes the live scroll positions, so resolve the intended
         # viewport first.
-        target_viewport = self._viewport_states.get(self._image_path)
+        target_viewport = None
         if self._config["keep_prev_scale"] and self._prev_image_path is not None:
             target_viewport = self._viewport_states.get(self._prev_image_path)
         # set zoom values

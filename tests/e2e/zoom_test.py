@@ -318,22 +318,24 @@ def test_navigation_chooses_viewport_by_keep_previous_scale(
 
     win._open_prev_image()
     qtbot.waitUntil(lambda: win._image_path == first_image_path)
-    expected_zoom = 350 if keep_prev_scale else _VIEWPORT_ZOOM
-    expected_zoom_mode = (
-        _ZoomMode.FIT_WINDOW if keep_prev_scale else _ZoomMode.MANUAL_ZOOM
-    )
-    expected_scroll_values = (
-        second_scroll_values if keep_prev_scale else first_scroll_values
-    )
-    expected_view_offset = second_view_offset if keep_prev_scale else first_view_offset
-    _wait_for_viewport(
-        qtbot=qtbot,
-        win=win,
-        scroll_values=expected_scroll_values,
-        zoom_value=expected_zoom,
-    )
-    assert win._zoom_mode == expected_zoom_mode
-    assert canvas.get_view_offset() == expected_view_offset
+    if keep_prev_scale:
+        _wait_for_viewport(
+            qtbot=qtbot,
+            win=win,
+            scroll_values=second_scroll_values,
+            zoom_value=350,
+        )
+        assert win._zoom_mode == _ZoomMode.FIT_WINDOW
+        assert canvas.get_view_offset() == second_view_offset
+    else:
+        qtbot.waitUntil(
+            lambda: win._zoom_mode == _ZoomMode.FIT_WINDOW
+            and all(bar.value() == bar.minimum() for bar in scroll_bars.values())
+        )
+        assert win._canvas_widgets.zoom_widget.value() != 350
+        for bar in scroll_bars.values():
+            assert bar.value() == bar.minimum()
+        assert canvas.get_view_offset().isNull()
 
     close_or_pause(qtbot=qtbot, widget=win, pause=pause)
 

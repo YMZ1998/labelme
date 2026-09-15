@@ -15,6 +15,7 @@ class RoiToolConfig:
     polygon_label: str = "1"
     strip_label: str = "2"
     ring_label: str = "3"
+    circle_label: str = "3"
     polygon_shortcut: str = "Ctrl+E"
     strip_shortcut: str = "Ctrl+Q"
     ring_shortcut: str = "Ctrl+W"
@@ -33,6 +34,7 @@ def load_roi_tool_config(*, config_file: Path | None = None) -> RoiToolConfig:
             ),
             "strip_label": parser.get("labels", "strip", fallback=defaults.strip_label),
             "ring_label": parser.get("labels", "ring", fallback=defaults.ring_label),
+            "circle_label": parser.get("labels", "circle", fallback=defaults.circle_label),
             "polygon_shortcut": parser.get(
                 "shortcuts", "create_polygon", fallback=defaults.polygon_shortcut
             ),
