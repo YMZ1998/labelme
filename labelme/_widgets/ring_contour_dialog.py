@@ -9,7 +9,8 @@ from PySide6 import QtWidgets
 from .. import _utils
 from .._ring_config import load_ring_point_spacing
 from .._ring_segmentation import estimate_inner_radius
-from .._ring_segmentation import fit_imaging_circle
+from .._ring_segmentation import IMAGING_CIRCLE_CENTER
+from .._ring_segmentation import OUTER_RADIUS
 from .._ring_segmentation import mask_contours
 from .._ring_segmentation import ring_grayscale
 from .._ring_segmentation import trace_imaging_ring
@@ -76,13 +77,12 @@ class RingContourDialog(QtWidgets.QDialog):
         self.setWindowTitle(self.tr("Extract ring contour"))
         self._image = image
         self._gray = ring_grayscale(_utils.img_qt_to_rgb_arr(image))
+        self._circle = (*IMAGING_CIRCLE_CENTER, OUTER_RADIUS)
         try:
-            self._circle = fit_imaging_circle(self._gray)
             radius_percent = round(
                 100 * estimate_inner_radius(self._gray, self._circle) / self._circle[2]
             )
         except ValueError:
-            self._circle = None
             radius_percent = 25
         parameters = load_ring_contour_parameters(
             settings, default_radius_percent=radius_percent

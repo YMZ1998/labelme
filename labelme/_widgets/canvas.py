@@ -2327,7 +2327,7 @@ class Canvas(QtWidgets.QWidget):
             if key == Qt.Key.Key_Escape and self._current is not None:
                 self._cancel_current_shape()
             elif (
-                key == Qt.Key.Key_Space
+                key == Qt.Key.Key_Alt
                 and self.create_mode == "annular_sector"
                 and self._current is not None
                 and len(self._current.points) == RING_POINT_COUNT - 1
@@ -2336,7 +2336,7 @@ class Canvas(QtWidgets.QWidget):
                 self._ring_major_arc = self._ring_prefer_major_arc
                 self.update()
             elif (
-                key in (Qt.Key.Key_Return, Qt.Key.Key_Space) and self._can_close_shape()
+                key in (Qt.Key.Key_Return, Qt.Key.Key_Alt) and self._can_close_shape()
             ):
                 self._finalize()
             elif modifiers == Qt.KeyboardModifier.AltModifier:
