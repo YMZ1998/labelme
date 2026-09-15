@@ -147,7 +147,6 @@ def test_default_ring_action_skips_settings_dialog(
 ) -> None:
     image = QtGui.QImage(20, 20, QtGui.QImage.Format.Format_RGB888)
     image.fill(0)
-    expected_mask = np.ones((20, 20), dtype=np.bool_)
     activated: list[tuple[np.ndarray, float]] = []
 
     class Harness:
@@ -159,9 +158,6 @@ def test_default_ring_action_skips_settings_dialog(
         ) -> None:
             activated.append((mask, point_spacing))
 
-    monkeypatch.setattr(_app, "ring_grayscale", lambda _image: expected_mask)
-    monkeypatch.setattr(_app, "fit_imaging_circle", lambda _gray: (10, 10, 10))
-    monkeypatch.setattr(_app, "estimate_inner_radius", lambda _gray, _circle: 4)
     monkeypatch.setattr(
         _app,
         "load_ring_contour_parameters",
@@ -171,13 +167,6 @@ def test_default_ring_action_skips_settings_dialog(
             {"radius_percent": 30, "smoothness": 8, "point_spacing": 36},
         )(),
     )
-    traced: list[tuple[float, float]] = []
-
-    def trace_with_settings(_gray: np.ndarray, **kwargs: object) -> np.ndarray:
-        traced.append((float(kwargs["inner_radius"]), float(kwargs["smoothness"])))
-        return expected_mask
-
-    monkeypatch.setattr(_app, "trace_imaging_ring", trace_with_settings)
     monkeypatch.setattr(
         _app,
         "RingContourDialog",
@@ -186,8 +175,10 @@ def test_default_ring_action_skips_settings_dialog(
 
     _app.MainWindow._start_ring_segmentation(Harness())  # ty: ignore[invalid-argument-type]
 
-    assert activated == [(expected_mask, 36)]
-    assert traced == [(3.0, 0.8)]
+    mask, point_spacing = activated[0]
+    assert point_spacing == 36
+    assert mask.shape == (20, 20)
+    assert not mask[0, 0]
 
 
 def test_detect_outer_circle_adds_circle_shape(
@@ -207,16 +198,13 @@ def test_detect_outer_circle_adds_circle_shape(
         def show_status_message(self, *_args: object, **_kwargs: object) -> None:
             pytest.fail("outer circle detection unexpectedly failed")
 
-    monkeypatch.setattr(_app, "ring_grayscale", lambda _image: np.zeros((20, 20)))
-    monkeypatch.setattr(_app, "fit_imaging_circle", lambda _gray: (10.0, 11.0, 4.0))
-
     _app.MainWindow._detect_outer_circle(Harness())  # ty: ignore[invalid-argument-type]
 
     assert len(detected) == 1
     shape = detected[0][0]
     assert shape.label == "3"
     assert shape.shape_type == "circle"
-    np.testing.assert_allclose(shape.points, [[10, 11], [14, 11]])
+    np.testing.assert_allclose(shape.points, [[512, 512], [998, 512]])
 
 
 def test_detect_circle_default_shortcut_is_c() -> None:

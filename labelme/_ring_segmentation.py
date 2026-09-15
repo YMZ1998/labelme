@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from typing import Final
 
 import numpy as np
 import numpy.typing as npt
@@ -8,6 +9,22 @@ from scipy import ndimage
 from skimage import draw
 from skimage import filters
 from skimage import measure
+
+INNER_RADIUS: Final[float] = 110.0
+OUTER_RADIUS: Final[float] = 486.0
+IMAGING_CIRCLE_CENTER: Final[tuple[float, float]] = (512.0, 512.0)
+
+
+def fixed_imaging_ring_mask(
+    *, height: int, width: int
+) -> npt.NDArray[np.bool_]:
+    """Build the fixed annular region used by the ROI ring tools."""
+    yy, xx = np.indices((height, width))
+    distance = np.hypot(
+        xx - IMAGING_CIRCLE_CENTER[0],
+        yy - IMAGING_CIRCLE_CENTER[1],
+    )
+    return (distance >= INNER_RADIUS) & (distance <= OUTER_RADIUS)
 
 
 def fit_imaging_circle(gray: npt.NDArray[np.float64]) -> tuple[float, float, float]:

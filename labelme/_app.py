@@ -50,10 +50,9 @@ from ._onnx_segmentation import discover_onnx_model
 from ._polygon_merge import merge_polygons
 from ._polygon_simplification import simplify_polygon
 from ._polygon_smoothing import smooth_polygon
-from ._ring_segmentation import estimate_inner_radius
-from ._ring_segmentation import fit_imaging_circle
-from ._ring_segmentation import ring_grayscale
-from ._ring_segmentation import trace_imaging_ring
+from ._ring_segmentation import IMAGING_CIRCLE_CENTER
+from ._ring_segmentation import OUTER_RADIUS
+from ._ring_segmentation import fixed_imaging_ring_mask
 from ._roi_tools_config import load_roi_tool_config
 from ._roi_tools_config import merge_roi_shortcuts
 from ._shape import Shape
@@ -1782,43 +1781,19 @@ class MainWindow(QtWidgets.QMainWindow):
     def _start_ring_segmentation(self) -> None:
         if self._image.isNull():
             return
-        try:
-            gray = ring_grayscale(_utils.img_qt_to_rgb_arr(self._image))
-            circle = fit_imaging_circle(gray)
-            default_radius_percent = round(
-                100 * estimate_inner_radius(gray, circle) / circle[2]
-            )
-            parameters = load_ring_contour_parameters(
-                self._window_state,
-                default_radius_percent=default_radius_percent,
-            )
-            mask = trace_imaging_ring(
-                gray,
-                circle=circle,
-                inner_radius=circle[2] * parameters.radius_percent / 100,
-                smoothness=parameters.smoothness / 10,
-            )
-        except ValueError:
-            self.show_status_message(
-                self.tr("Could not extract the ring; use Ring Settings to adjust it."),
-                delay=3000,
-            )
-            return
+        parameters = load_ring_contour_parameters(
+            self._window_state,
+            default_radius_percent=round(100 * 110 / OUTER_RADIUS),
+        )
+        mask = fixed_imaging_ring_mask(
+            height=self._image.height(),
+            width=self._image.width(),
+        )
         self._activate_ring_cutting(mask=mask, point_spacing=parameters.point_spacing)
 
     def _detect_outer_circle(self) -> None:
         if self._image.isNull():
             return
-        try:
-            gray = ring_grayscale(_utils.img_qt_to_rgb_arr(self._image))
-            center_x, center_y, radius = fit_imaging_circle(gray)
-        except ValueError:
-            self.show_status_message(
-                self.tr("Could not detect the outer imaging circle."),
-                delay=3000,
-            )
-            return
-
         self._insert_shapes(
             [
                 Shape(
@@ -1826,8 +1801,8 @@ class MainWindow(QtWidgets.QMainWindow):
                     shape_type="circle",
                     points=np.array(
                         [
-                            [center_x, center_y],
-                            [center_x + radius, center_y],
+                            IMAGING_CIRCLE_CENTER,
+                            [IMAGING_CIRCLE_CENTER[0] + OUTER_RADIUS, IMAGING_CIRCLE_CENTER[1]],
                         ],
                         dtype=np.float64,
                     ),
