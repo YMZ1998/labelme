@@ -16,15 +16,17 @@ IMAGING_CIRCLE_CENTER: Final[tuple[float, float]] = (512.0, 512.0)
 
 
 def fixed_imaging_ring_mask(
-    *, height: int, width: int
+    *, height: int, width: int, inner_radius: float = INNER_RADIUS
 ) -> npt.NDArray[np.bool_]:
     """Build the fixed annular region used by the ROI ring tools."""
+    if not np.isfinite(inner_radius) or inner_radius < 0:
+        raise ValueError("Inner radius must be non-negative and finite")
     yy, xx = np.indices((height, width))
     distance = np.hypot(
         xx - IMAGING_CIRCLE_CENTER[0],
         yy - IMAGING_CIRCLE_CENTER[1],
     )
-    return (distance >= INNER_RADIUS) & (distance <= OUTER_RADIUS)
+    return (distance >= inner_radius) & (distance <= OUTER_RADIUS)
 
 
 def fit_imaging_circle(gray: npt.NDArray[np.float64]) -> tuple[float, float, float]:

@@ -172,19 +172,23 @@ def test_default_ring_action_skips_settings_dialog(
         "RingContourDialog",
         lambda **_kwargs: pytest.fail("default Ring action opened settings"),
     )
+    monkeypatch.setattr(_app, "ring_grayscale", lambda _image: np.zeros((20, 20)))
+    monkeypatch.setattr(_app, "estimate_inner_radius", lambda _gray, _circle: 110.0)
+    expected_mask = np.ones((20, 20), dtype=bool)
+    monkeypatch.setattr(_app, "trace_imaging_ring", lambda *_args, **_kwargs: expected_mask)
 
     _app.MainWindow._start_ring_segmentation(Harness())  # ty: ignore[invalid-argument-type]
 
     mask, point_spacing = activated[0]
     assert point_spacing == 36
     assert mask.shape == (20, 20)
-    assert not mask[0, 0]
+    assert mask is expected_mask
 
 
-def test_detect_outer_circle_adds_circle_shape(
+def test_detect_outer_circle_adds_annular_mask(
     *, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    image = QtGui.QImage(20, 20, QtGui.QImage.Format.Format_RGB888)
+    image = QtGui.QImage(1024, 1024, QtGui.QImage.Format.Format_RGB888)
     image.fill(0)
     detected: list[list[Shape]] = []
 
@@ -198,13 +202,24 @@ def test_detect_outer_circle_adds_circle_shape(
         def show_status_message(self, *_args: object, **_kwargs: object) -> None:
             pytest.fail("outer circle detection unexpectedly failed")
 
+    monkeypatch.setattr(
+        _app,
+        "ring_grayscale",
+        lambda _image: np.zeros((1024, 1024), dtype=np.float64),
+    )
+    monkeypatch.setattr(_app, "estimate_inner_radius", lambda _gray, _circle: 110.0)
+
     _app.MainWindow._detect_outer_circle(Harness())  # ty: ignore[invalid-argument-type]
 
     assert len(detected) == 1
     shape = detected[0][0]
     assert shape.label == "3"
-    assert shape.shape_type == "circle"
-    np.testing.assert_allclose(shape.points, [[512, 512], [998, 512]])
+    assert shape.shape_type == "mask"
+    assert shape.mask is not None
+    assert not bool(shape.mask[512, 512])
+    assert bool(shape.mask[512, 700])
+    assert not bool(shape.mask[512, 999])
+    np.testing.assert_allclose(shape.points, [[0, 0], [1024, 1024]])
 
 
 def test_detect_circle_default_shortcut_is_c() -> None:
