@@ -51,7 +51,6 @@ from ._polygon_merge import merge_polygons
 from ._polygon_simplification import simplify_polygon
 from ._polygon_smoothing import smooth_polygon
 from ._ring_segmentation import estimate_inner_radius
-from ._ring_segmentation import fixed_imaging_ring_mask
 from ._ring_segmentation import IMAGING_CIRCLE_CENTER
 from ._ring_segmentation import OUTER_RADIUS
 from ._ring_segmentation import ring_grayscale
@@ -1810,38 +1809,21 @@ class MainWindow(QtWidgets.QMainWindow):
     def _detect_outer_circle(self) -> None:
         if self._image.isNull():
             return
-        gray = ring_grayscale(_utils.img_qt_to_rgb_arr(self._image))
-        circle = (*IMAGING_CIRCLE_CENTER, OUTER_RADIUS)
-        try:
-            inner_radius = estimate_inner_radius(gray, circle)
-            mask = fixed_imaging_ring_mask(
-                height=gray.shape[0],
-                width=gray.shape[1],
-                inner_radius=inner_radius,
-            )
-        except ValueError:
-            self.show_status_message(
-                self.tr("Could not detect the inner circle."),
-                delay=3000,
-            )
-            return
-        if not mask.any():
-            self.show_status_message(
-                self.tr("Could not detect the outer circle."),
-                delay=3000,
-            )
-            return
-        height, width = mask.shape
         self._insert_shapes(
             [
                 Shape(
                     label=self._roi_tool_config.circle_label,
-                    shape_type="mask",
+                    shape_type="circle",
                     points=np.array(
-                        [[0, 0], [width, height]],
+                        [
+                            IMAGING_CIRCLE_CENTER,
+                            [
+                                IMAGING_CIRCLE_CENTER[0] + OUTER_RADIUS,
+                                IMAGING_CIRCLE_CENTER[1],
+                            ],
+                        ],
                         dtype=np.float64,
                     ),
-                    mask=mask,
                     closed=True,
                 )
             ]
