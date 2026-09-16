@@ -3165,6 +3165,27 @@ class MainWindow(QtWidgets.QMainWindow):
         self._apply_setting_change(("ai", "default"), model_display)
 
     def _onnx_model_path(self) -> Path | None:
+        configured = str(self._config["onnx"].get("model_path", "")).strip()
+        if configured:
+            path = Path(os.path.expandvars(os.path.expanduser(configured)))
+            if not path.is_absolute():
+                base_dir = (
+                    self._config_file.parent
+                    if self._config_file is not None
+                    else Path(__file__).resolve().parent.parent
+                )
+                path = base_dir / path
+            path = path.resolve()
+            if path.is_file():
+                return path
+            self.show_status_message(
+                self.tr("Configured ONNX model does not exist: {path}").format(
+                    path=path
+                ),
+                delay=10000,
+            )
+            return None
+
         remembered = self._window_state.value("onnxModelPath", "", type=str)
         if remembered and Path(remembered).is_file():
             return Path(remembered)

@@ -42,6 +42,8 @@ mask_polygonization:
 polygon_simplification:
   tolerance: 0.5
 onnx:
+  # Absolute path is recommended. Relative paths are resolved from this config file.
+  model_path: ""
   keep_classes: ["1", "2", "3"]
   minimum_polygon_area: 0
 ai:

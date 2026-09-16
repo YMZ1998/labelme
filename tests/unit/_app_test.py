@@ -212,6 +212,63 @@ def test_detect_circle_default_shortcut_is_c() -> None:
     assert config["shortcuts"]["detect_circle"] == "C"
 
 
+def test_onnx_model_path_uses_configured_path(
+    *, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_file = tmp_path / "config.yaml"
+    config_file.touch()
+    model_path = tmp_path / "models" / "segmenter.onnx"
+    model_path.parent.mkdir()
+    model_path.touch()
+    messages: list[str] = []
+
+    class Harness:
+        _config_file = config_file
+        _config = {"onnx": {"model_path": "models/segmenter.onnx"}}
+        _window_state = object()
+
+        def show_status_message(self, message: str, **_kwargs: object) -> None:
+            messages.append(message)
+
+    monkeypatch.setattr(
+        _app,
+        "discover_onnx_model",
+        lambda **_kwargs: pytest.fail("configured ONNX path was not used"),
+    )
+
+    assert _app.MainWindow._onnx_model_path(Harness()) == model_path.resolve()
+    assert messages == []
+
+
+def test_onnx_model_path_does_not_fallback_when_configured_path_is_missing(
+    *, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_file = tmp_path / "config.yaml"
+    config_file.touch()
+    messages: list[str] = []
+
+    class Harness:
+        _config_file = config_file
+        _config = {"onnx": {"model_path": "missing.onnx"}}
+        _window_state = object()
+
+        def tr(self, message: str) -> str:
+            return message
+
+        def show_status_message(self, message: str, **_kwargs: object) -> None:
+            messages.append(message)
+
+    monkeypatch.setattr(
+        _app,
+        "discover_onnx_model",
+        lambda **_kwargs: pytest.fail("missing configured path unexpectedly fell back"),
+    )
+
+    assert _app.MainWindow._onnx_model_path(Harness()) is None
+    assert len(messages) == 1
+    assert "missing.onnx" in messages[0]
+
+
 @pytest.mark.parametrize(
     "image_path, file_index, file_count, dirty, expected",
     [
