@@ -16,7 +16,7 @@ from ._automation._shape_builders import shapes_from_detections
 from ._shape import Shape
 
 DEFAULT_IMAGE_SIZE: Final[int] = 1024
-DEFAULT_POLYGON_DETAIL: Final[int] = 50
+DEFAULT_POLYGON_DETAIL: Final[int] = 40
 OCT_OUTER_RADIUS_RATIO: Final[float] = 0.49
 GRAYSCALE_DIMENSIONS: Final[int] = 2
 ONNX_INPUT_DIMENSIONS: Final[int] = 4
