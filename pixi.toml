@@ -1,0 +1,24 @@
+[workspace]
+authors = ["YMZ <1320439118@qq.com>"]
+channels = ["conda-forge"]
+name = "labelme"
+platforms = ["win-64"]
+version = "0.1.0"
+
+[tasks]
+
+[dependencies]
+python = "3.10.*"
+ruamel = ">=1.0,<2"
+"ruamel.yaml" = ">=0.19.1,<0.20"
+natsort = ">=8.4.0,<9"
+scipy = ">=1.15.2,<2"
+
+[pypi-dependencies]
+pillow = ">=12.3.0, <13"
+onnxruntime = "==1.23.2"
+loguru = ">=0.7.3, <0.8"
+pip = ">=26.2.1, <27"
+osam = ">=0.8.1, <0.9"
+pyside6 = "==6.8"
+scikit-image = ">=0.25.2, <0.26"

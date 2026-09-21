@@ -14,3 +14,6 @@
 .idea/
 
 .out-of-scope/
+# pixi environments
+.pixi/*
+!.pixi/config.toml
