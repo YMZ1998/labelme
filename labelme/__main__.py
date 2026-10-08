@@ -12,6 +12,12 @@ from pathlib import Path
 from typing import AnyStr
 from typing import Final
 
+# Some Windows graphics drivers crash while Qt paints the canvas. Keep the
+# software backend as the safe default, while allowing an explicit override.
+if os.name == "nt":
+    os.environ.setdefault("QT_OPENGL", "software")
+    os.environ.setdefault("QT_QUICK_BACKEND", "software")
+
 # Preserve package-relative imports when launched by file path (for example, in an IDE).
 if __name__ == "__main__" and not __package__:
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))

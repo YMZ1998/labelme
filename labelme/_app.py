@@ -1783,9 +1783,9 @@ class MainWindow(QtWidgets.QMainWindow):
     def _start_ring_segmentation(self) -> None:
         if self._image.isNull():
             return
-        gray = ring_grayscale(_utils.img_qt_to_rgb_arr(self._image))
-        circle = (*IMAGING_CIRCLE_CENTER, OUTER_RADIUS)
         try:
+            gray = ring_grayscale(_utils.img_qt_to_rgb_arr(self._image))
+            circle = (*IMAGING_CIRCLE_CENTER, OUTER_RADIUS)
             inner_radius = estimate_inner_radius(gray, circle)
             default_radius_percent = round(100 * inner_radius / OUTER_RADIUS)
             parameters = load_ring_contour_parameters(
@@ -1798,7 +1798,10 @@ class MainWindow(QtWidgets.QMainWindow):
                 inner_radius=OUTER_RADIUS * parameters.radius_percent / 100,
                 smoothness=parameters.smoothness / 10,
             )
-        except ValueError:
+            if mask.shape != gray.shape or not mask.any():
+                raise ValueError("The extracted ring mask is invalid")
+        except (MemoryError, ValueError, TypeError, RuntimeError, OverflowError) as exc:
+            logger.opt(exception=exc).error("Ring tool initialization failed")
             self.show_status_message(
                 self.tr("Could not extract the ring; use Ring Settings to adjust it."),
                 delay=3000,

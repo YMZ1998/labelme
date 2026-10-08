@@ -180,6 +180,36 @@ def test_default_ring_action_skips_settings_dialog(
     assert not mask[0, 0]
 
 
+def test_default_ring_action_reports_initialization_errors(
+    *, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    image = QtGui.QImage(20, 20, QtGui.QImage.Format.Format_RGB888)
+    image.fill(0)
+    messages: list[str] = []
+
+    class Harness:
+        _image = image
+        _window_state = object()
+
+        def tr(self, message: str) -> str:
+            return message
+
+        def show_status_message(self, message: str, **_kwargs: object) -> None:
+            messages.append(message)
+
+    monkeypatch.setattr(
+        _app,
+        "ring_grayscale",
+        lambda _image: (_ for _ in ()).throw(RuntimeError("bad ring input")),
+    )
+
+    _app.MainWindow._start_ring_segmentation(Harness())  # ty: ignore[invalid-argument-type]
+
+    assert messages == [
+        "Could not extract the ring; use Ring Settings to adjust it."
+    ]
+
+
 def test_detect_outer_circle_adds_circle_shape(
     *, monkeypatch: pytest.MonkeyPatch
 ) -> None:

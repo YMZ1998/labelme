@@ -11,6 +11,10 @@ if errorlevel 1 (
     exit /b 1
 )
 
+rem Avoid native Qt/driver crashes during canvas painting on some Windows GPUs.
+if not defined QT_OPENGL set "QT_OPENGL=software"
+if not defined QT_QUICK_BACKEND set "QT_QUICK_BACKEND=software"
+
 pixi run python -m labelme %*
 set "LABELME_EXIT_CODE=%ERRORLEVEL%"
 
