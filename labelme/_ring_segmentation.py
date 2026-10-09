@@ -351,6 +351,7 @@ def cut_ring(
     if np.any(widths < epsilon):
         raise ValueError("Zero-width side")
     mask = _clean_ring_mask(mask)
+    _validate_cut_controls(mask=mask, controls=points)
     region = _cut_ring_between_sides(
         mask=mask,
         controls=points,
@@ -425,9 +426,6 @@ def _ring_region_to_polygon(
 ) -> npt.NDArray[np.float64]:
     contours = mask_contours(region)
     if len(contours) != 1:
-        region = _largest_component(ndimage.binary_closing(region, iterations=2))
-        contours = mask_contours(region)
-    if len(contours) != 1:
         raise ValueError("Cut must open the ring hole")
     if not np.isfinite(point_spacing) or point_spacing <= 0:
         raise ValueError("Point spacing must be positive and finite")
@@ -437,3 +435,40 @@ def _ring_region_to_polygon(
     polygon[:, 0] = np.clip(polygon[:, 0], 0, region.shape[1] - 1)
     polygon[:, 1] = np.clip(polygon[:, 1], 0, region.shape[0] - 1)
     return polygon
+
+
+def _validate_cut_controls(
+    *, mask: npt.NDArray[np.bool_], controls: npt.NDArray[np.float64]
+) -> None:
+    """Reject cutting sides that do not cross the annular body."""
+    body = ndimage.binary_dilation(mask, iterations=3)
+    height, width = mask.shape
+    for outer, inner in ((controls[0], controls[1]), (controls[3], controls[2])):
+        vector = outer - inner
+        length = float(np.linalg.norm(vector))
+        if length <= 1e-6:
+            raise ValueError("Zero-width side")
+        samples = np.linspace(outer, inner, 101)
+        columns = np.rint(samples[:, 0]).astype(int)
+        rows = np.rint(samples[:, 1]).astype(int)
+        valid = (
+            (rows >= 0)
+            & (rows < height)
+            & (columns >= 0)
+            & (columns < width)
+        )
+        if np.count_nonzero(body[rows[valid], columns[valid]]) < 4:
+            raise ValueError("Cutting side does not cross the ring")
+
+    # The two cutting sides must not be effectively the same side. This is the
+    # common failure mode that produces a long artificial edge across the hole.
+    first = controls[0] - controls[1]
+    second = controls[3] - controls[2]
+    cosine = abs(float(np.dot(first, second))) / (
+        np.linalg.norm(first) * np.linalg.norm(second)
+    )
+    if cosine > 0.999 and (
+        np.linalg.norm(controls[0] - controls[3]) < 8
+        or np.linalg.norm(controls[1] - controls[2]) < 8
+    ):
+        raise ValueError("Cutting sides are too close")

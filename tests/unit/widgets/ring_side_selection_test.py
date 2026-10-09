@@ -56,6 +56,41 @@ def test_space_persistently_switches_ring_side(qtbot: QtBot) -> None:
     assert canvas._ring_major_arc is False
 
 
+def test_shift_immediately_switches_ring_side(qtbot: QtBot) -> None:
+    canvas = Canvas()
+    qtbot.addWidget(canvas)
+    canvas.set_editing(value=False, create_mode="annular_sector")
+    points = (
+        QtCore.QPointF(10, 10),
+        QtCore.QPointF(20, 20),
+        QtCore.QPointF(30, 20),
+    )
+    canvas._current = _DraftShape(
+        shape_type="polygon", points=points, point_labels=(1, 1, 1)
+    )
+    canvas._line = _DraftShape(
+        shape_type="polygon",
+        points=(points[-1], QtCore.QPointF(40, 10)),
+        point_labels=(1, 1),
+    )
+
+    canvas.keyPressEvent(
+        _key_event(QtCore.QEvent.Type.KeyPress, QtCore.Qt.Key.Key_Shift)
+    )
+
+    assert canvas._ring_major_arc is False
+
+    canvas.keyReleaseEvent(
+        _key_event(
+            QtCore.QEvent.Type.KeyRelease,
+            QtCore.Qt.Key.Key_Shift,
+            QtCore.Qt.KeyboardModifier.NoModifier,
+        )
+    )
+
+    assert canvas._ring_major_arc is True
+
+
 def test_space_generates_reverse_ring_preview_with_boundary_gaps(
     qtbot: QtBot,
 ) -> None:

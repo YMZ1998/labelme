@@ -2327,6 +2327,15 @@ class Canvas(QtWidgets.QWidget):
             if key == Qt.Key.Key_Escape and self._current is not None:
                 self._cancel_current_shape()
             elif (
+                key == Qt.Key.Key_Shift
+                and self.create_mode == "annular_sector"
+                and self._current is not None
+                and len(self._current.points) == RING_POINT_COUNT - 1
+            ):
+                self._ring_major_arc = not self._ring_prefer_major_arc
+                self.update()
+                self._update_status(extra_messages=None)
+            elif (
                 key == Qt.Key.Key_Alt
                 and self.create_mode == "annular_sector"
                 and self._current is not None
@@ -2364,6 +2373,8 @@ class Canvas(QtWidgets.QWidget):
                 and len(self._current.points) == RING_POINT_COUNT - 1
             ):
                 self._ring_major_arc = self._ring_prefer_major_arc
+                self.update()
+                self._update_status(extra_messages=None)
                 self.update()
             if not modifiers:
                 self._snapping = True
