@@ -11,9 +11,11 @@ from pytestqt.qtbot import QtBot
 from labelme._ring_config import DEFAULT_POINT_SPACING
 from labelme._ring_config import load_ring_point_spacing
 from labelme._ring_segmentation import cut_ring
+from labelme._ring_segmentation import estimate_inner_radius
 from labelme._ring_segmentation import fit_imaging_circle
 from labelme._ring_segmentation import resample_closed_contour
 from labelme._ring_segmentation import trace_default_imaging_ring
+from labelme._ring_segmentation import trace_imaging_ring
 from labelme._widgets.ring_contour_dialog import RingContourDialog
 
 
@@ -60,6 +62,23 @@ def test_cutting_sides_each_have_only_three_points() -> None:
     assert len(second_side) == 3
     assert np.any(np.all(np.isclose(first_side, [150, 100]), axis=1))
     assert np.any(np.all(np.isclose(second_side, [100, 150]), axis=1))
+
+
+def test_cut_ring_uses_circular_boundaries_despite_mask_gaps() -> None:
+    yy, xx = np.indices((201, 201))
+    radius = np.hypot(xx - 100, yy - 100)
+    mask = (radius >= 20) & (radius <= 80)
+    mask[92:108, 176:184] = False
+    mask[176:184, 92:108] = False
+    controls = [[180, 100], [120, 100], [100, 120], [100, 180]]
+
+    polygon = cut_ring(mask, controls, major_arc=True, point_spacing=8)
+    radii = np.hypot(polygon[:, 0] - 100, polygon[:, 1] - 100)
+    outer_arc = radii[radii > 70]
+    inner_arc = radii[radii < 30]
+
+    assert outer_arc.max() - outer_arc.min() < 1e-6
+    assert inner_arc.max() - inner_arc.min() < 1e-6
 
 
 def test_parallel_cutting_sides_have_no_angle_restriction() -> None:
@@ -215,6 +234,29 @@ def test_default_ring_extraction_finds_annular_region() -> None:
     assert mask[100, 150]
     assert not mask[100, 100]
     assert not mask[100, 190]
+
+
+def test_ring_inner_boundary_is_circular_despite_local_bright_artifact() -> None:
+    yy, xx = np.indices((401, 401))
+    radius = np.hypot(xx - 200, yy - 200)
+    gray = np.full((401, 401), 40.0)
+    gray[radius < 45] = 0
+    gray[(radius >= 45) & (radius <= 55)] = 180
+    gray[182:195, 215:250] = 255
+    circle = (200.0, 200.0, 180.0)
+
+    inner_radius = estimate_inner_radius(gray, circle)
+    mask = trace_imaging_ring(
+        gray, circle=circle, inner_radius=inner_radius
+    )
+    angles = np.linspace(0, 2 * np.pi, 360, endpoint=False)
+    samples = np.arange(1, 100)
+    sample_x = np.rint(200 + np.cos(angles[:, None]) * samples).astype(int)
+    sample_y = np.rint(200 + np.sin(angles[:, None]) * samples).astype(int)
+    inner_edge_radii = samples[mask[sample_y, sample_x].argmax(axis=1)]
+
+    assert inner_radius == pytest.approx(45, abs=3)
+    assert inner_edge_radii.max() - inner_edge_radii.min() <= 1.5
 
 
 def test_outer_circle_uses_low_contrast_outer_edge() -> None:

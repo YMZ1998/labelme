@@ -113,10 +113,16 @@ def estimate_inner_radius(
     gray: npt.NDArray[np.float64], circle: tuple[float, float, float]
 ) -> float:
     polar, radii = _polar_image(gray, circle)
-    profile = np.median(polar, axis=0)
-    gradient = np.gradient(ndimage.gaussian_filter1d(profile, 2))
+    gradient = np.gradient(ndimage.gaussian_filter1d(polar, 2, axis=1), axis=1)
     valid = (radii > circle[2] * 0.08) & (radii < circle[2] * 0.55)
-    return float(radii[np.argmax(np.where(valid, gradient, -np.inf))])
+    strength = np.where(valid[None, :], gradient, -np.inf)
+    candidates = radii[np.argmax(strength, axis=1)]
+    finite = np.isfinite(candidates)
+    if not finite.any():
+        raise ValueError("No inner circular boundary found")
+    # Use a robust scalar radius. Per-angle extrema are easily pulled toward
+    # bright artifacts, while the median preserves the circular anatomy.
+    return float(np.median(candidates[finite]))
 
 
 def _polar_image(
@@ -142,51 +148,9 @@ def trace_imaging_ring(
     smoothness: float = 0.5,
 ) -> npt.NDArray[np.bool_]:
     """Trace a continuous inner edge in polar space; use a fitted outer circle."""
-    polar, radii = _polar_image(gray, circle)
-    gradient = np.gradient(polar, axis=1)
-    band = np.abs(radii - inner_radius) <= max(8, circle[2] * 0.12)
-    radii = radii[band]
-    gradient = gradient[:, band]
-    if radii.size <= 1:
-        raise ValueError("Inner search band is empty")
-    strength = np.maximum(gradient, 0)
-    normalizer = max(float(np.quantile(strength, 0.95)), 0.1)
-    costs = (
-        -strength / normalizer
-        + 0.08 * ((radii - inner_radius) / max(circle[2] * 0.1, 1)) ** 2
-    )
-    # Start in a high-contrast direction and enforce a closed path there.
-    start_angle = int(np.argmax(strength.max(axis=1)))
-    costs = np.roll(costs, -start_angle, axis=0)
-    seed = int(np.argmin(costs[0]))
-    scores = np.full(len(radii), np.inf)
-    scores[seed] = costs[0, seed]
-    back = np.zeros(costs.shape, dtype=np.int32)
-    max_step = max(2, int(circle[2] / 100))
-    indices = np.arange(len(radii))
-    steps = np.arange(-max_step, max_step + 1)
-    previous = indices[None, :] + steps[:, None]
-    valid = (previous >= 0) & (previous < len(radii))
-    previous = np.clip(previous, 0, len(radii) - 1)
-    for angle in range(1, len(costs)):
-        candidates = scores[previous] + smoothness * steps[:, None] ** 2
-        candidates[~valid] = np.inf
-        choice = candidates.argmin(axis=0)
-        back[angle] = previous[choice, indices]
-        scores = candidates[choice, indices] + costs[angle]
-    path = np.empty(len(costs), dtype=np.int32)
-    path[-1] = seed
-    for angle in range(len(path) - 1, 0, -1):
-        path[angle - 1] = back[angle, path[angle]]
-    inner = np.roll(radii[path], start_angle)
-    inner = ndimage.gaussian_filter1d(inner, 1, mode="wrap")
     yy, xx = np.indices(gray.shape)
     distance = np.hypot(xx - circle[0], yy - circle[1])
-    angles = np.arctan2(yy - circle[1], xx - circle[0]) % (2 * math.pi)
-    local_inner = np.interp(
-        angles, np.linspace(0, 2 * math.pi, len(inner) + 1), np.r_[inner, inner[0]]
-    )
-    ring = (distance <= circle[2]) & (distance >= local_inner)
+    ring = (distance <= circle[2]) & (distance >= inner_radius)
     return ndimage.binary_closing(ring, iterations=1)
 
 
@@ -350,17 +314,20 @@ def cut_ring(
     epsilon = 1e-6
     if np.any(widths < epsilon):
         raise ValueError("Zero-width side")
-    mask = _clean_ring_mask(mask)
-    _validate_cut_controls(mask=mask, controls=points)
-    region = _cut_ring_between_sides(
-        mask=mask,
-        controls=points,
-        major_arc=major_arc,
+    source_mask = np.asarray(mask, dtype=np.bool_)
+    clean_mask = _clean_ring_mask(mask)
+    _validate_cut_controls(mask=clean_mask, controls=points)
+    center_x, center_y, inner_radius, outer_radius = _fit_annulus_from_mask(
+        source_mask
     )
-    return _ring_region_to_polygon(
-        region=region,
+    return _annular_sector_polygon(
         controls=points,
+        center=(center_x, center_y),
+        inner_radius=inner_radius,
+        outer_radius=outer_radius,
+        major_arc=major_arc,
         point_spacing=point_spacing,
+        image_shape=clean_mask.shape,
     )
 
 
@@ -435,6 +402,87 @@ def _ring_region_to_polygon(
     polygon[:, 0] = np.clip(polygon[:, 0], 0, region.shape[1] - 1)
     polygon[:, 1] = np.clip(polygon[:, 1], 0, region.shape[0] - 1)
     return polygon
+
+
+def _fit_annulus_from_mask(
+    mask: npt.NDArray[np.bool_],
+) -> tuple[float, float, float, float]:
+    rows, columns = np.nonzero(mask)
+    if len(rows) == 0:
+        raise ValueError("Ring mask is empty")
+    center_x = float((columns.min() + columns.max()) / 2)
+    center_y = float((rows.min() + rows.max()) / 2)
+    distances = np.hypot(columns - center_x, rows - center_y)
+    inner_radius = float(distances.min())
+    outer_radius = float(distances.max())
+    if inner_radius <= 0 or outer_radius <= inner_radius:
+        raise ValueError("Invalid annulus mask")
+    return center_x, center_y, inner_radius, outer_radius
+
+
+def _annular_sector_polygon(
+    *,
+    controls: npt.NDArray[np.float64],
+    center: tuple[float, float],
+    inner_radius: float,
+    outer_radius: float,
+    major_arc: bool,
+    point_spacing: float,
+    image_shape: tuple[int, int],
+) -> npt.NDArray[np.float64]:
+    if not np.isfinite(point_spacing) or point_spacing <= 0:
+        raise ValueError("Point spacing must be positive and finite")
+    center_point = np.asarray(center, dtype=np.float64)
+    angles = np.arctan2(controls[:, 1] - center[1], controls[:, 0] - center[0])
+    outer_delta = (angles[3] - angles[0]) % (2 * math.pi)
+    outer_ccw = outer_delta >= math.pi if major_arc else outer_delta < math.pi
+    outer_arc = _sample_circular_arc(
+        center=center_point,
+        radius=outer_radius,
+        start_angle=float(angles[0]),
+        end_angle=float(angles[3]),
+        ccw=outer_ccw,
+        point_spacing=point_spacing,
+    )
+    inner_arc = _sample_circular_arc(
+        center=center_point,
+        radius=inner_radius,
+        start_angle=float(angles[2]),
+        end_angle=float(angles[1]),
+        ccw=not outer_ccw,
+        point_spacing=point_spacing,
+    )
+    second_side = np.linspace(outer_arc[-1], inner_arc[0], 3)
+    first_side = np.linspace(inner_arc[-1], outer_arc[0], 3)
+    polygon = np.vstack(
+        (
+            outer_arc[:-1],
+            second_side[:-1],
+            inner_arc[:-1],
+            first_side[:-1],
+        )
+    )
+    polygon[:, 0] = np.clip(polygon[:, 0], 0, image_shape[1] - 1)
+    polygon[:, 1] = np.clip(polygon[:, 1], 0, image_shape[0] - 1)
+    return polygon
+
+
+def _sample_circular_arc(
+    *,
+    center: npt.NDArray[np.float64],
+    radius: float,
+    start_angle: float,
+    end_angle: float,
+    ccw: bool,
+    point_spacing: float,
+) -> npt.NDArray[np.float64]:
+    if ccw:
+        delta = (end_angle - start_angle) % (2 * math.pi)
+    else:
+        delta = -((start_angle - end_angle) % (2 * math.pi))
+    point_count = max(2, math.ceil(abs(delta) * radius / point_spacing) + 1)
+    angles = np.linspace(start_angle, start_angle + delta, point_count)
+    return center + np.column_stack((np.cos(angles), np.sin(angles))) * radius
 
 
 def _validate_cut_controls(
